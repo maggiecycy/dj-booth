@@ -21,6 +21,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ~350MB of MP3s cannot ship on Pages (backend deploy hard-timeout = 10 min).
+      # Catalog audio is loaded from jsDelivr (or vars.MUSIC_CDN_URL) at runtime.
+      - name: Drop local music from Pages bundle
+        run: rm -rf public/music
+
+      - name: Resolve music CDN
+        id: music_cdn
+        run: |
+          if [ -n "${{ vars.MUSIC_CDN_URL }}" ]; then
+            echo "url=${{ vars.MUSIC_CDN_URL }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ github.sha }}/public/music" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -34,7 +48,7 @@ jobs:
         run: npm run build
         env:
           GITHUB_PAGES: 'true'
-          VITE_MUSIC_CDN_URL: ${{ vars.MUSIC_CDN_URL }}
+          VITE_MUSIC_CDN_URL: ${{ steps.music_cdn.outputs.url }}
           VITE_SPOTIFY_CLIENT_ID: ${{ vars.SPOTIFY_CLIENT_ID }}
           VITE_SPOTIFY_REDIRECT_URI: https://maggiecycy.github.io/dj-booth/callback
 
