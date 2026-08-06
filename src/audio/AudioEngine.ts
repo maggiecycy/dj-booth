@@ -2,8 +2,23 @@ import { AUDIO } from '../config'
 import { averageRange, type BandEnergy } from './analysis'
 import { prefersMediaElementPlayback } from './platformAudio'
 import type { Track } from './playlist'
+import {
+  getSpotifyPlaybackState,
+  pauseSpotifyPlayback,
+  playSpotifyUri,
+  seekSpotifyPlayback,
+} from '../spotify/player'
+import { getValidAccessToken } from '../spotify/auth'
 
 export type LoadState = 'idle' | 'loading' | 'ready' | 'error' | 'playing' | 'paused'
+
+function isSpotifyTrack(track: Track | null | undefined): boolean {
+  return Boolean(track?.spotifyUri || track?.src.startsWith('spotify:'))
+}
+
+function spotifyUriOf(track: Track): string {
+  return track.spotifyUri || track.src
+}
 
 export interface EngineSnapshot {
   loadState: LoadState
@@ -46,6 +61,12 @@ export class AudioEngine {
   private prevOverall = 0
   private beatFlash = 0
   private cachedSnap: EngineSnapshot
+  /** Spotify Web Playback SDK mode */
+  private spotifyMode = false
+  private spotifyPosMs = 0
+  private spotifyPosAt = 0
+  private spotifyPoll = 0 as ReturnType<typeof setInterval> | 0
+  private spotifySynthPhase = 0
 
   constructor(playlist: Track[]) {
     this.playlist = playlist
@@ -97,6 +118,10 @@ export class AudioEngine {
     this.beginFromUserGesture()
     const track = this.playlist[this.trackIndex]
     if (!track || !this.mediaEl) return
+    if (isSpotifyTrack(track)) {
+      void this.playSpotify(track)
+      return
+    }
 
     this.attachMediaHandlers()
     this.mediaEl.src = track.src
@@ -115,11 +140,12 @@ export class AudioEngine {
     this.stopSource(true)
     this.playing = false
     this.offset = 0
+    this.spotifyPosMs = 0
     this.trackIndex = 0
     this.beatFlash = 0
     this.prevOverall = 0
     this.playlist = tracks
-    this.duration = 0
+    this.duration = tracks[0]?.durationSec ?? 0
     this.error = null
 
     if (tracks.length === 0) {
@@ -132,6 +158,15 @@ export class AudioEngine {
     this.emit()
 
     try {
+      if (isSpotifyTrack(tracks[0])) {
+        if (autoplay && this.unlocked) await this.play()
+        else {
+          this.loadState = 'ready'
+          this.emit()
+        }
+        return
+      }
+
       if (this.useMediaElement) {
         if (autoplay && this.unlocked) {
           await this.play()
@@ -185,6 +220,11 @@ export class AudioEngine {
   }
 
   getCurrentTime(): number {
+    if (this.spotifyMode) {
+      if (!this.playing) return this.spotifyPosMs / 1000
+      const elapsed = (performance.now() - this.spotifyPosAt) / 1000
+      return Math.min(this.duration || Infinity, this.spotifyPosMs / 1000 + elapsed)
+    }
     if (this.useMediaElement && this.mediaEl && this.playing) {
       return Math.min(this.duration || Infinity, this.mediaEl.currentTime)
     }
@@ -215,6 +255,16 @@ export class AudioEngine {
 
     const track = this.playlist[index]
     if (!track) return
+    if (track.spotifyUri || track.src.startsWith('spotify:')) {
+      // Spotify URIs need Web Playback SDK — not fetch()/decodeAudioData
+      if (!background) {
+        this.duration = 0
+        this.loadState = this.playing ? 'playing' : 'ready'
+        this.error = null
+        this.emit()
+      }
+      return
+    }
     if (this.buffers.has(track.id)) return
     if (!this.ctx) await this.unlock()
     if (!this.ctx) throw new Error('AudioContext unavailable')
@@ -262,13 +312,25 @@ export class AudioEngine {
       await this.ctx.resume()
     }
 
+    const track = this.playlist[this.trackIndex]
+    if (isSpotifyTrack(track)) {
+      await this.playSpotify(track!)
+      return
+    }
+
+    // Leaving Spotify mode for local audio
+    if (this.spotifyMode) {
+      await pauseSpotifyPlayback().catch(() => {})
+      this.stopSpotifyPoll()
+      this.spotifyMode = false
+    }
+
     if (this.useMediaElement) {
       await this.playMediaElement()
       return
     }
 
     await this.preload(this.trackIndex)
-    const track = this.playlist[this.trackIndex]
     const buffer = track ? this.buffers.get(track.id) : undefined
     if (!buffer || !this.ctx || !this.gain) {
       this.loadState = 'error'
@@ -297,6 +359,105 @@ export class AudioEngine {
     this.loadState = 'playing'
     this.emit()
     this.preloadNext()
+  }
+
+  private async playSpotify(track: Track): Promise<void> {
+    this.stopBufferSource(false)
+    if (this.mediaEl) {
+      this.mediaEl.pause()
+    }
+
+    this.loadState = 'loading'
+    this.error = null
+    this.emit()
+
+    const uri = spotifyUriOf(track)
+    const positionMs = Math.floor(this.offset * 1000)
+
+    const token = await getValidAccessToken()
+    if (!token) {
+      this.spotifyMode = false
+      this.playing = false
+      this.loadState = 'ready'
+      this.error = 'Connect Spotify in Library, then Enable player, then Play.'
+      this.emit()
+      return
+    }
+
+    try {
+      await playSpotifyUri(uri, positionMs)
+
+      this.spotifyMode = true
+      this.spotifyPosMs = positionMs
+      this.spotifyPosAt = performance.now()
+      this.duration = track.durationSec ?? this.duration
+      this.playing = true
+      this.loadState = 'playing'
+      this.emit()
+      this.startSpotifyPoll()
+
+      window.setTimeout(() => {
+        void this.syncFromSpotifyPlayer()
+      }, 600)
+    } catch (err) {
+      this.spotifyMode = false
+      this.playing = false
+      this.loadState = 'ready'
+      // Never navigate away — that stole the first “Connect Spotify” click UX
+      this.error =
+        (err instanceof Error ? err.message : 'Browser player unavailable') +
+        ' — Enable player in Library (Premium), or Log out → Connect again.'
+      this.emit()
+    }
+  }
+
+  private startSpotifyPoll(): void {
+    this.stopSpotifyPoll()
+    this.spotifyPoll = setInterval(() => {
+      void this.syncFromSpotifyPlayer()
+    }, 800)
+  }
+
+  private stopSpotifyPoll(): void {
+    if (this.spotifyPoll) {
+      clearInterval(this.spotifyPoll)
+      this.spotifyPoll = 0
+    }
+  }
+
+  private async syncFromSpotifyPlayer(): Promise<void> {
+    if (!this.spotifyMode) return
+    try {
+      const state = await getSpotifyPlaybackState()
+      if (!state) return
+
+      if (state.duration > 0) {
+        this.duration = state.duration / 1000
+      }
+      this.spotifyPosMs = state.position
+      this.spotifyPosAt = performance.now()
+
+      if (state.paused && this.playing) {
+        this.playing = false
+        this.offset = state.position / 1000
+        this.loadState = 'paused'
+        this.emit()
+        return
+      }
+
+      if (
+        this.playing &&
+        state.duration > 0 &&
+        state.position >= state.duration - 800
+      ) {
+        void this.next(true)
+        return
+      }
+
+      this.emit()
+    } catch {
+      /* ignore transient SDK errors */
+    }
   }
 
   private async playMediaElement(): Promise<void> {
@@ -359,6 +520,17 @@ export class AudioEngine {
   pause(): void {
     if (!this.playing) return
 
+    if (this.spotifyMode) {
+      this.spotifyPosMs = this.getCurrentTime() * 1000
+      this.offset = this.spotifyPosMs / 1000
+      void pauseSpotifyPlayback().catch(() => {})
+      this.stopSpotifyPoll()
+      this.playing = false
+      this.loadState = 'paused'
+      this.emit()
+      return
+    }
+
     if (this.useMediaElement && this.mediaEl) {
       this.offset = this.mediaEl.currentTime
       this.mediaEl.pause()
@@ -379,6 +551,13 @@ export class AudioEngine {
 
   async seek(time: number): Promise<void> {
     this.offset = Math.max(0, Math.min(time, this.duration || time))
+    if (this.spotifyMode) {
+      this.spotifyPosMs = this.offset * 1000
+      this.spotifyPosAt = performance.now()
+      await seekSpotifyPlayback(this.spotifyPosMs).catch(() => {})
+      this.emit()
+      return
+    }
     if (this.useMediaElement && this.mediaEl) {
       this.mediaEl.currentTime = this.offset
     }
@@ -391,12 +570,31 @@ export class AudioEngine {
     this.stopSource(false)
     this.playing = false
     this.offset = 0
+    this.spotifyPosMs = 0
     this.trackIndex = index
     this.beatFlash = 0
     this.prevOverall = 0
     this.loadState = 'loading'
     this.emit()
+
+    const track = this.playlist[index]
     try {
+      if (isSpotifyTrack(track)) {
+        this.duration = track?.durationSec ?? 0
+        if (autoplay) await this.play()
+        else {
+          this.loadState = 'ready'
+          this.emit()
+        }
+        return
+      }
+
+      if (this.spotifyMode) {
+        await pauseSpotifyPlayback().catch(() => {})
+        this.stopSpotifyPoll()
+        this.spotifyMode = false
+      }
+
       if (this.useMediaElement) {
         if (autoplay) await this.play()
         else {
@@ -410,7 +608,6 @@ export class AudioEngine {
       this.preloadNext()
       if (autoplay) await this.play()
       else {
-        const track = this.playlist[index]
         const buf = track && this.buffers.get(track.id)
         this.duration = buf?.duration ?? 0
         this.loadState = 'ready'
@@ -440,6 +637,24 @@ export class AudioEngine {
 
   sampleBands(dt: number): BandEnergy {
     const empty = { bass: 0, mid: 0, high: 0, overall: 0 }
+
+    // Spotify SDK audio is not routed into AnalyserNode — synthesize a beat pulse
+    if (this.spotifyMode && this.playing) {
+      const track = this.playlist[this.trackIndex]
+      const bpm = track?.bpmHint || 120
+      this.spotifySynthPhase += dt * (bpm / 60) * Math.PI * 2
+      const kick = Math.pow(Math.max(0, Math.sin(this.spotifySynthPhase)), 8)
+      const hat = Math.pow(Math.max(0, Math.sin(this.spotifySynthPhase * 2 + 0.4)), 4) * 0.45
+      const bass = 0.25 + kick * 0.7
+      const mid = 0.2 + hat * 0.5
+      const high = 0.15 + hat * 0.35
+      const overall = bass * 0.5 + mid * 0.35 + high * 0.15
+      if (kick > 0.55) this.beatFlash = 1
+      else this.beatFlash = Math.max(0, this.beatFlash - dt * 5)
+      this.prevOverall = overall
+      return { bass, mid, high, overall }
+    }
+
     if (!this.analyser || !this.freqData || !this.playing) {
       this.beatFlash = Math.max(0, this.beatFlash - dt * 4)
       return empty
@@ -543,6 +758,11 @@ export class AudioEngine {
   }
 
   private stopSource(resetOffset: boolean) {
+    if (this.spotifyMode) {
+      void pauseSpotifyPlayback().catch(() => {})
+      this.stopSpotifyPoll()
+      this.spotifyMode = false
+    }
     if (this.useMediaElement && this.mediaEl) {
       this.mediaEl.onended = null
       this.mediaEl.pause()
@@ -550,7 +770,10 @@ export class AudioEngine {
     } else {
       this.stopBufferSource(resetOffset)
     }
-    if (resetOffset) this.offset = 0
+    if (resetOffset) {
+      this.offset = 0
+      this.spotifyPosMs = 0
+    }
   }
 
   dispose(): void {

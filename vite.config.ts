@@ -6,4 +6,9 @@ export default defineConfig({
   plugins: [react()],
   /** GitHub Pages: https://maggiecycy.github.io/dj-booth/ */
   base: process.env.GITHUB_PAGES === 'true' ? '/dj-booth/' : '/',
+  server: {
+    port: 5173,
+    strictPort: true,
+    host: '127.0.0.1',
+  },
 })

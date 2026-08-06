@@ -35,6 +35,8 @@ jobs:
         env:
           GITHUB_PAGES: 'true'
           VITE_MUSIC_CDN_URL: ${{ vars.MUSIC_CDN_URL }}
+          VITE_SPOTIFY_CLIENT_ID: ${{ vars.SPOTIFY_CLIENT_ID }}
+          VITE_SPOTIFY_REDIRECT_URI: https://maggiecycy.github.io/dj-booth/callback
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

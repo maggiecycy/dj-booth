@@ -2,7 +2,6 @@ import { useState, type CSSProperties } from 'react'
 import type { EngineSnapshot } from '../audio/AudioEngine'
 import type { Track } from '../audio/playlist'
 import type { VenueSettings } from '../types/venue'
-import { CustomAdd } from './CustomAdd'
 import { TrackListPanel } from './TrackListPanel'
 import { VenuePanel } from './VenuePanel'
 
@@ -14,8 +13,6 @@ interface BoothConsoleProps {
   intensity: number
   venue: VenueSettings
   categoryCustom: boolean
-  customReady: boolean
-  adding: boolean
   onIntensity: (v: number) => void
   onVenueChange: (patch: Partial<VenueSettings>) => void
   onPlayPause: () => void
@@ -25,7 +22,6 @@ interface BoothConsoleProps {
   onSelectTrack: (index: number) => void
   onDeleteCustom?: (id: string) => void
   onMoveCustom?: (from: number, to: number) => void
-  onAddCustom?: (file: File, title: string, artist: string) => Promise<void>
   onShoutMood?: (text: string) => void
   onAudioWarmUp?: () => void
 }
@@ -45,8 +41,6 @@ export function BoothConsole({
   intensity,
   venue,
   categoryCustom,
-  customReady,
-  adding,
   onIntensity,
   onVenueChange,
   onPlayPause,
@@ -56,7 +50,6 @@ export function BoothConsole({
   onSelectTrack,
   onDeleteCustom,
   onMoveCustom,
-  onAddCustom,
   onShoutMood,
   onAudioWarmUp,
 }: BoothConsoleProps) {
@@ -145,10 +138,6 @@ export function BoothConsole({
               style={{ '--progress': `${progress * 100}%` } as CSSProperties}
             />
           </>
-        )}
-
-        {categoryCustom && customReady && onAddCustom && (
-          <CustomAdd embedded busy={adding} onAdd={onAddCustom} />
         )}
 
         {onShoutMood && (

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { mapBandsToMotion } from './audio/analysis'
 import {
   addCustomTrackFromFile,
+  addSpotifyTracks,
+  clearSpotifyCustomTracks,
   loadCustomTracks,
   removeCustomTrack,
   reorderCustomTracks,
@@ -20,6 +22,7 @@ import type { StageFxEvent } from './scene/stageFx'
 import { DEFAULT_VENUE, type VenueSettings } from './types/venue'
 import { BoothConsole } from './ui/BoothConsole'
 import { CategoryBar } from './ui/CategoryBar'
+import { LibraryPanel } from './ui/LibraryPanel'
 import { StartOverlay } from './ui/StartOverlay'
 
 export function App() {
@@ -326,6 +329,47 @@ export function App() {
     }
   }
 
+  const handleImportSpotify = async (
+    tracks: {
+      uri: string
+      title: string
+      artist: string
+      albumArt?: string
+      durationMs: number
+    }[],
+  ) => {
+    setAdding(true)
+    try {
+      await addSpotifyTracks(tracks)
+      const reloaded = await loadCustomTracks()
+      setCustomTracks(reloaded)
+      const nextList = getTracksForCategory('custom', reloaded)
+      setCategory('custom')
+      setPlaylist(nextList)
+      transitionRef.current = 1
+      // Do not autoplay entire import dump — user picks a track and presses play
+      // (first Spotify play also warms Web Playback SDK)
+      engine.assignPlaylist(nextList)
+      if (nextList.length > 0) {
+        const last = nextList.length - 1
+        await engine.select(last, false)
+      }
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  const handleSpotifyLogoutCleanup = async () => {
+    clearSpotifyCustomTracks()
+    const reloaded = await loadCustomTracks()
+    setCustomTracks(reloaded)
+    if (category === 'custom') {
+      const nextList = getTracksForCategory('custom', reloaded)
+      setPlaylist(nextList)
+      await engine.setPlaylist(nextList, false)
+    }
+  }
+
   const handleDeleteCustom = async (trackId: string) => {
     const victim = customTracks.find((t) => t.id === trackId)
     if (!victim) return
@@ -414,7 +458,7 @@ export function App() {
 
               {category === 'custom' && playlist.length === 0 && (
                 <div className="controls controls--empty">
-                  <p className="empty-set">Custom set is empty — add tracks below.</p>
+                  <p className="empty-set">Custom set is empty — open Library to add tracks.</p>
                 </div>
               )}
 
@@ -423,40 +467,44 @@ export function App() {
               )}
             </div>
 
-            {started && (
-              <BoothConsole
-                track={track}
-                snapshot={{
-                  ...snapshot,
-                  currentTime: engine.getCurrentTime(),
-                }}
-                playlist={playlist}
-                currentIndex={snapshot.trackIndex}
-                intensity={intensity}
-                venue={venue}
-                categoryCustom={category === 'custom'}
-                customReady={customReady}
-                adding={adding}
-                onIntensity={setIntensity}
-                onVenueChange={(patch) => setVenue((v) => ({ ...v, ...patch }))}
-                onPlayPause={() => engine.toggle()}
-                onPrev={() => {
-                  triggerTransition()
-                  void engine.prev(true)
-                }}
-                onNext={() => {
-                  triggerTransition()
-                  void engine.next(true)
-                }}
-                onSeek={(t) => void engine.seek(t)}
-                onSelectTrack={(i) => void handleSelectTrack(i)}
-                onDeleteCustom={(id) => void handleDeleteCustom(id)}
-                onMoveCustom={(from, to) => void handleMoveCustom(from, to)}
-                onAddCustom={handleAddCustom}
-                onShoutMood={handleShoutMood}
-                onAudioWarmUp={warmUpAudio}
+            {category === 'custom' && customReady && (
+              <LibraryPanel
+                busy={adding}
+                onAdd={handleAddCustom}
+                onImportSpotify={handleImportSpotify}
+                onSpotifyLogoutCleanup={handleSpotifyLogoutCleanup}
               />
             )}
+
+            <BoothConsole
+              track={track}
+              snapshot={{
+                ...snapshot,
+                currentTime: engine.getCurrentTime(),
+              }}
+              playlist={playlist}
+              currentIndex={snapshot.trackIndex}
+              intensity={intensity}
+              venue={venue}
+              categoryCustom={category === 'custom'}
+              onIntensity={setIntensity}
+              onVenueChange={(patch) => setVenue((v) => ({ ...v, ...patch }))}
+              onPlayPause={() => engine.toggle()}
+              onPrev={() => {
+                triggerTransition()
+                void engine.prev(true)
+              }}
+              onNext={() => {
+                triggerTransition()
+                void engine.next(true)
+              }}
+              onSeek={(t) => void engine.seek(t)}
+              onSelectTrack={(i) => void handleSelectTrack(i)}
+              onDeleteCustom={(id) => void handleDeleteCustom(id)}
+              onMoveCustom={(from, to) => void handleMoveCustom(from, to)}
+              onShoutMood={handleShoutMood}
+              onAudioWarmUp={warmUpAudio}
+            />
           </>
         )}
       </main>

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && mkdir -p dist/callback && cp dist/index.html dist/callback/index.html",
     "lint": "oxlint",
     "preview": "vite preview",
     "music:generate": "node scripts/generate-demo-tracks.mjs"

@@ -11,8 +11,13 @@ export interface CustomTrackMeta {
   mood: TrackMood
   tags: string[]
   bpmHint: number
-  /** MIME from upload, for decode hints */
+  /** local file upload */
   mime?: string
+  /** local | spotify */
+  source?: 'local' | 'spotify'
+  spotifyUri?: string
+  albumArt?: string
+  durationMs?: number
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -84,6 +89,10 @@ export async function loadCustomTracks(): Promise<Track[]> {
   const meta = loadCustomMeta()
   const tracks: Track[] = []
   for (const m of meta) {
+    if (m.source === 'spotify' && m.spotifyUri) {
+      tracks.push(metaToTrack(m, m.spotifyUri))
+      continue
+    }
     const buf = await idbGet(m.id)
     if (!buf) continue
     const blob = new Blob([buf], { type: m.mime || 'audio/*' })
@@ -110,6 +119,7 @@ export async function addCustomTrackFromFile(
     tags: ['custom'],
     bpmHint: overrides?.bpmHint ?? 120,
     mime: file.type || 'audio/*',
+    source: 'local',
   }
 
   const list = loadCustomMeta()
@@ -121,9 +131,12 @@ export async function addCustomTrackFromFile(
 }
 
 export async function removeCustomTrack(id: string): Promise<void> {
+  const victim = loadCustomMeta().find((m) => m.id === id)
   const list = loadCustomMeta().filter((m) => m.id !== id)
   saveCustomMeta(list)
-  await idbDelete(id)
+  if (victim?.source !== 'spotify') {
+    await idbDelete(id)
+  }
 }
 
 /** Persist a new order for custom tracks (by id). */
@@ -152,5 +165,59 @@ function metaToTrack(m: CustomTrackMeta, src: string): Track {
     src,
     bpmHint: m.bpmHint,
     custom: true,
+    spotifyUri: m.spotifyUri,
+    albumArt: m.albumArt,
+    durationSec: m.durationMs ? m.durationMs / 1000 : undefined,
   }
+}
+
+export interface SpotifyImportTrack {
+  uri: string
+  title: string
+  artist: string
+  albumArt?: string
+  durationMs: number
+}
+
+export async function addSpotifyTracks(
+  items: SpotifyImportTrack[],
+): Promise<Track[]> {
+  const existingUris = new Set(
+    loadCustomMeta()
+      .filter((m) => m.spotifyUri)
+      .map((m) => m.spotifyUri!),
+  )
+
+  const list = loadCustomMeta()
+  const added: Track[] = []
+
+  for (const item of items) {
+    if (existingUris.has(item.uri)) continue
+    existingUris.add(item.uri)
+
+    const id = `spotify-${item.uri.replace(/[^a-z0-9]+/gi, '-').slice(0, 48)}`
+    const meta: CustomTrackMeta = {
+      id,
+      title: item.title,
+      artist: item.artist,
+      mood: 'amber',
+      tags: ['custom', 'spotify'],
+      bpmHint: 120,
+      source: 'spotify',
+      spotifyUri: item.uri,
+      albumArt: item.albumArt,
+      durationMs: item.durationMs,
+    }
+    list.push(meta)
+    added.push(metaToTrack(meta, item.uri))
+  }
+
+  saveCustomMeta(list)
+  return added
+}
+
+/** Remove Spotify-imported tracks from Custom (keeps local uploads). */
+export function clearSpotifyCustomTracks(): void {
+  const kept = loadCustomMeta().filter((m) => m.source !== 'spotify' && !m.spotifyUri)
+  saveCustomMeta(kept)
 }

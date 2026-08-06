@@ -29,9 +29,15 @@ export interface Track {
   src: string
   bpmHint: number
   custom?: boolean
+  spotifyUri?: string
+  albumArt?: string
+  /** Known length in seconds (Spotify imports) */
+  durationSec?: number
 }
 
 export const CATEGORIES: Category[] = [
+  { id: 'custom', label: 'Custom', blurb: 'add local files in browser' },
+  { id: 'mix', label: 'Mix', blurb: 'all tracks · public/music' },
   { id: 'fredagain', label: 'Fred again..', blurb: 'emotional · headphone · live edits' },
   { id: 'house', label: 'House', blurb: '4/4 groove · warm floor' },
   { id: 'techno', label: 'Techno', blurb: 'machine pulse · warehouse' },
@@ -39,8 +45,6 @@ export const CATEGORIES: Category[] = [
   { id: 'deep', label: 'Deep House', blurb: 'late night · soft grid' },
   { id: 'trance', label: 'Trance', blurb: 'lift · long build' },
   { id: 'dnb', label: 'DnB', blurb: 'breaks · forward rush' },
-  { id: 'mix', label: 'Mix', blurb: 'all tracks · public/music' },
-  { id: 'custom', label: 'Custom', blurb: 'add local files in browser' },
 ]
 
 export function musicSrc(filename: string): string {
