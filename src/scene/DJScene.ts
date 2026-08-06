@@ -1,6 +1,16 @@
 import type { MotionParams } from '../audio/analysis'
-import type { Track, TrackMood } from '../audio/playlist'
+import type { CategoryId, Track, TrackMood } from '../audio/playlist'
+import { sceneDanceStyle } from '../audio/playlist'
 import { SITE } from '../config'
+import {
+  armsForStyle,
+  buildKinetics,
+  CROWD_LAYOUT,
+  djAppearance,
+  drawClubCharacter,
+  roundRect,
+  type DanceStyleId,
+} from './characters'
 
 export interface SceneState {
   motion: MotionParams
@@ -8,6 +18,7 @@ export interface SceneState {
   playing: boolean
   transition: number
   reducedMotion: boolean
+  boothCategory: CategoryId
 }
 
 const MOOD_TINT: Record<TrackMood, [number, number, number]> = {
@@ -76,6 +87,7 @@ export class DJScene {
 
     this.drawAtmosphere(tint, pulse, flash, state.transition)
     this.drawFloor(tint, pulse)
+    this.drawCrowd(state)
     this.drawBooth(tint, pulse)
     this.drawVinyl(tint, state)
     this.drawDJ(state)
@@ -251,262 +263,45 @@ export class DJScene {
     })
   }
 
+  private drawCrowd(state: SceneState) {
+    const { ctx, w, h } = this
+    const style = this.resolveStyle(state)
+    const k = buildKinetics(state.motion, this.twoStep, this.armPhase, this.breath)
+    const arms = armsForStyle(style, k)
+    const baseY = h * 0.58
+    const cx = w * 0.5
+
+    for (const slot of CROWD_LAYOUT) {
+      drawClubCharacter(
+        ctx,
+        cx + slot.xRatio * w,
+        baseY + slot.yOff,
+        slot.scale * Math.min(1, w / 420),
+        k,
+        arms,
+        slot.appearance,
+      )
+    }
+  }
+
+  private resolveStyle(state: SceneState): DanceStyleId {
+    return sceneDanceStyle(state.boothCategory, state.track)
+  }
+
   private drawDJ(state: SceneState) {
     const { ctx, w, h } = this
-    const m = state.motion
+    const style = this.resolveStyle(state)
+    const k = buildKinetics(state.motion, this.twoStep, this.armPhase, this.breath)
+    const arms = armsForStyle(style, k)
+    const look = djAppearance(style)
     const cx = w * 0.5
     const baseY = h * 0.58
     const scale = Math.min(1, w / 420) * 1.08
 
-    // House / techno booth stance params
-    const step = Math.sin(this.twoStep) // -1..1 weight shift
-    const bounce = m.bounce * 10
-    const breathY = Math.sin(this.breath) * 1.5
-    const hipX = step * (6 + m.bounce * 8)
-    const lean = 0.18 + m.energyPulse * 0.04 // forward lean toward decks
-    const headNod = m.bounce * 0.08 + Math.sin(this.breath * 1.4) * 0.03
-
-    // Cue / EQ hand motion (mid-high)
-    const cue = Math.sin(this.armPhase) * (0.25 + m.armSwing * 0.55)
-    const pad = m.padPress * 0.2
-    const flashLift = m.beatFlash * 0.35
-
-    ctx.save()
-    ctx.translate(cx + hipX * 0.35, baseY - bounce - breathY)
-    ctx.scale(scale, scale)
-    ctx.rotate(hipX * 0.012)
-
-    // Floor contact shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.38)'
-    ctx.beginPath()
-    ctx.ellipse(0, 10, 52 + Math.abs(step) * 4, 9, 0, 0, Math.PI * 2)
-    ctx.fill()
-
-    /*
-     * Pose language (club floor / booth):
-     * - Soft knees, wide stance (two-step weight transfer)
-     * - Torso leans into the decks
-     * - Free arm: shoulder bounce / occasional raise on flash
-     * - Working arm: on mixer / platter (EQ twist)
-     */
-    const kneeBend = 0.42 + m.bounce * 0.25
-    const leftWeight = 0.5 + step * 0.5
-    const rightWeight = 1 - leftWeight
-
-    // Legs — bent, grounded (draw behind torso)
-    this.drawLeg(-18, -6, -0.22 - leftWeight * 0.08, kneeBend + leftWeight * 0.12, step > 0)
-    this.drawLeg(18, -6, 0.22 + rightWeight * 0.08, kneeBend + rightWeight * 0.12, step < 0)
-
-    // Hips / lower torso block
-    ctx.save()
-    ctx.translate(0, -28)
-    ctx.rotate(lean * 0.35)
-    ctx.fillStyle = '#1a222c'
-    roundRect(ctx, -22, -8, 44, 24, 10)
-    ctx.fill()
-    ctx.restore()
-
-    // Upper body — lean forward into booth
-    ctx.save()
-    ctx.translate(0, -36)
-    ctx.rotate(lean)
-
-    // Jacket torso
-    const bodyGrad = ctx.createLinearGradient(0, -70, 0, 20)
-    bodyGrad.addColorStop(0, '#3a4554')
-    bodyGrad.addColorStop(0.55, '#252e3a')
-    bodyGrad.addColorStop(1, '#151b24')
-    ctx.fillStyle = bodyGrad
-    roundRect(ctx, -26, -72, 52, 78, 16)
-    ctx.fill()
-
-    // Side stripe (club jacket detail)
-    ctx.fillStyle = `rgba(232,164,106,${0.2 + m.energyPulse * 0.35})`
-    roundRect(ctx, -26, -50, 5, 40, 2)
-    ctx.fill()
-
-    // Shoulders
-    ctx.fillStyle = '#2c3644'
-    ctx.beginPath()
-    ctx.ellipse(-24, -62, 12, 9, -0.25, 0, Math.PI * 2)
-    ctx.ellipse(24, -62, 12, 9, 0.25, 0, Math.PI * 2)
-    ctx.fill()
-
-    // Working arm (right): on mixer — EQ twist / pad press
-    this.drawBoothArm(22, -58, {
-      upper: 1.05 + cue * 0.15 + pad,
-      fore: 0.85 - pad * 0.4,
-      twist: cue * 0.5,
-      hand: 'reach',
-    })
-
-    // Free arm (left): classic house bounce — elbow out, hand near chest / occasional raise
-    this.drawBoothArm(-22, -58, {
-      upper: -0.55 - flashLift + Math.sin(this.armPhase * 0.7) * 0.2 * m.armSwing,
-      fore: -0.9 - m.bounce * 0.15,
-      twist: -0.2,
-      hand: 'groove',
-    })
-
-    // Neck
-    ctx.fillStyle = '#c4a48a'
-    roundRect(ctx, -6, -88, 12, 14, 4)
-    ctx.fill()
-
-    // Head — slight nod, looking down at decks
-    ctx.save()
-    ctx.translate(0, -98)
-    ctx.rotate(headNod + lean * 0.4)
-
-    // Headphones band
-    ctx.strokeStyle = '#c8d0da'
-    ctx.lineWidth = 4.5
-    ctx.beginPath()
-    ctx.arc(0, -2, 22, Math.PI * 1.05, Math.PI * 1.95)
-    ctx.stroke()
-
-    // Head shape
-    ctx.fillStyle = '#d4b39a'
-    ctx.beginPath()
-    ctx.ellipse(0, 0, 18, 20, 0, 0, Math.PI * 2)
-    ctx.fill()
-
-    // Short textured hair
-    ctx.fillStyle = '#141820'
-    ctx.beginPath()
-    ctx.ellipse(0, -10, 19, 12, 0, Math.PI, Math.PI * 2)
-    ctx.fill()
-    ctx.beginPath()
-    ctx.ellipse(-14, -2, 7, 11, -0.5, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.beginPath()
-    ctx.ellipse(14, -2, 7, 11, 0.5, 0, Math.PI * 2)
-    ctx.fill()
-
-    // Ear cups
-    ctx.fillStyle = '#252b34'
-    ctx.beginPath()
-    ctx.ellipse(-22, 0, 7, 10, 0.15, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.beginPath()
-    ctx.ellipse(22, 0, 7, 10, -0.15, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.strokeStyle = `rgba(232,164,106,${0.35 + m.beatFlash * 0.55})`
-    ctx.lineWidth = 1.8
-    ctx.beginPath()
-    ctx.ellipse(-22, 0, 7, 10, 0.15, 0, Math.PI * 2)
-    ctx.stroke()
-    ctx.beginPath()
-    ctx.ellipse(22, 0, 7, 10, -0.15, 0, Math.PI * 2)
-    ctx.stroke()
-
-    // Focused eyes (looking down)
-    ctx.strokeStyle = 'rgba(40,30,28,0.8)'
-    ctx.lineWidth = 1.8
-    ctx.lineCap = 'round'
-    ctx.beginPath()
-    ctx.moveTo(-8, 2)
-    ctx.lineTo(-3, 3)
-    ctx.moveTo(3, 3)
-    ctx.lineTo(8, 2)
-    ctx.stroke()
-
-    // Soft mouth
-    ctx.beginPath()
-    ctx.moveTo(-3, 10)
-    ctx.quadraticCurveTo(0, 12, 3, 10)
-    ctx.stroke()
-
-    ctx.restore() // head
-    ctx.restore() // torso lean
-
-    ctx.restore()
+    drawClubCharacter(ctx, cx, baseY, scale, k, arms, look)
   }
 
-  /** Bent-knee club stance leg */
-  private drawLeg(
-    x: number,
-    y: number,
-    hipAngle: number,
-    kneeBend: number,
-    lifted: boolean,
-  ) {
-    const { ctx } = this
-    const lift = lifted ? -4 : 0
-    ctx.save()
-    ctx.translate(x, y + lift)
-    ctx.rotate(hipAngle)
-
-    // Thigh
-    ctx.fillStyle = '#232b36'
-    roundRect(ctx, -8, 0, 16, 28, 8)
-    ctx.fill()
-
-    // Shin — folds at knee
-    ctx.translate(0, 26)
-    ctx.rotate(kneeBend)
-    ctx.fillStyle = '#1c232d'
-    roundRect(ctx, -7, 0, 14, 26, 7)
-    ctx.fill()
-
-    // Shoe
-    ctx.translate(0, 24)
-    ctx.fillStyle = '#0e1218'
-    roundRect(ctx, -9, 0, 20, 8, 3)
-    ctx.fill()
-    ctx.fillStyle = 'rgba(232,164,106,0.35)'
-    roundRect(ctx, -9, 5, 20, 3, 1)
-    ctx.fill()
-
-    ctx.restore()
-  }
-
-  private drawBoothArm(
-    x: number,
-    y: number,
-    pose: { upper: number; fore: number; twist: number; hand: 'reach' | 'groove' },
-  ) {
-    const { ctx } = this
-    ctx.save()
-    ctx.translate(x, y)
-    ctx.rotate(pose.upper)
-
-    // Upper arm
-    ctx.strokeStyle = '#2a3340'
-    ctx.lineWidth = 11
-    ctx.lineCap = 'round'
-    ctx.beginPath()
-    ctx.moveTo(0, 0)
-    ctx.lineTo(0, 30)
-    ctx.stroke()
-
-    // Forearm
-    ctx.translate(0, 30)
-    ctx.rotate(pose.fore + pose.twist * 0.3)
-    ctx.beginPath()
-    ctx.moveTo(0, 0)
-    ctx.lineTo(0, 28)
-    ctx.stroke()
-
-    // Hand
-    ctx.translate(0, 30)
-    ctx.rotate(pose.twist)
-    ctx.fillStyle = '#d4b39a'
-    if (pose.hand === 'reach') {
-      // Flat hand on deck / knob
-      ctx.beginPath()
-      ctx.ellipse(0, 2, 8, 5, 0.2, 0, Math.PI * 2)
-      ctx.fill()
-    } else {
-      // Loose fist / groove hand near chest
-      ctx.beginPath()
-      ctx.arc(0, 2, 6.5, 0, Math.PI * 2)
-      ctx.fill()
-    }
-
-    ctx.restore()
-  }
-
+  /** legacy placeholder removed — legs/arms live in characters.ts */
   private drawLights(
     tint: [number, number, number],
     pulse: number,
@@ -580,22 +375,4 @@ export class DJScene {
     }
     ctx.restore()
   }
-}
-
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-) {
-  const rr = Math.min(r, w / 2, h / 2)
-  ctx.beginPath()
-  ctx.moveTo(x + rr, y)
-  ctx.arcTo(x + w, y, x + w, y + h, rr)
-  ctx.arcTo(x + w, y + h, x, y + h, rr)
-  ctx.arcTo(x, y + h, x, y, rr)
-  ctx.arcTo(x, y, x + w, y, rr)
-  ctx.closePath()
 }

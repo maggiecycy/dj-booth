@@ -8,14 +8,9 @@ interface StartOverlayProps {
 
 export function StartOverlay({ loading, error, onStart }: StartOverlayProps) {
   return (
-    <div className="start-overlay">
+    <div className="start-overlay start-overlay--minimal">
       <div className="start-overlay__panel">
-        <p className="start-overlay__eyebrow">click to unlock audio</p>
-        <h1 className="start-overlay__brand">{SITE.name}</h1>
-        <p className="start-overlay__copy">
-          Browsers block autoplay with sound. One tap starts the AudioContext,
-          loads the first track, and syncs the DJ to the music.
-        </p>
+        <h1 className="start-overlay__brand sr-only">{SITE.name}</h1>
         <button
           type="button"
           className="btn btn--start"

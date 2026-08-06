@@ -1,6 +1,5 @@
 export type TrackMood = 'warm' | 'cool' | 'amber' | 'deep' | 'bright' | 'mist'
 
-/** EDM booth sets + mix + user custom */
 export type CategoryId =
   | 'house'
   | 'techno'
@@ -8,6 +7,7 @@ export type CategoryId =
   | 'deep'
   | 'trance'
   | 'dnb'
+  | 'fredagain'
   | 'mix'
   | 'custom'
 
@@ -24,13 +24,13 @@ export interface Track {
   mood: TrackMood
   category: Exclude<CategoryId, 'mix' | 'custom'> | 'custom'
   tags: string[]
-  /** Path under public/ — spaces encoded for fetch */
   src: string
   bpmHint: number
   custom?: boolean
 }
 
 export const CATEGORIES: Category[] = [
+  { id: 'fredagain', label: 'Fred again..', blurb: 'emotional · headphone · live edits' },
   { id: 'house', label: 'House', blurb: '4/4 groove · warm floor' },
   { id: 'techno', label: 'Techno', blurb: 'machine pulse · warehouse' },
   { id: 'melodic', label: 'Melodic', blurb: 'emotional · rolling bass' },
@@ -41,79 +41,47 @@ export const CATEGORIES: Category[] = [
   { id: 'custom', label: '自定义', blurb: '浏览器里临时添加' },
 ]
 
-/** Build URL-safe path for files in public/music/ (respects GitHub Pages base) */
 export function musicSrc(filename: string): string {
   const base = import.meta.env.BASE_URL
   return `${base}music/${encodeURIComponent(filename)}`
 }
 
-/**
- * 曲库：直接读 public/music/ 里的文件。
- * 新增 mp3 → 在此补一条；改歌名/专场也在这里。
- */
+function t(
+  id: string,
+  file: string,
+  title: string,
+  artist: string,
+  mood: TrackMood,
+  category: Track['category'],
+  tags: string[],
+  bpmHint: number,
+): Track {
+  return { id, title, artist, mood, category, tags, src: musicSrc(file), bpmHint }
+}
+
+/** public/music/ 曲库 */
 export const CATALOG: Track[] = [
-  {
-    id: 'file-1',
-    title: 'File 1',
-    artist: 'Local',
-    mood: 'warm',
-    category: 'house',
-    tags: ['house'],
-    src: musicSrc('File 1.mp3'),
-    bpmHint: 122,
-  },
-  {
-    id: 'file-2',
-    title: 'File 2',
-    artist: 'Local',
-    mood: 'cool',
-    category: 'techno',
-    tags: ['techno'],
-    src: musicSrc('File 2.mp3'),
-    bpmHint: 128,
-  },
-  {
-    id: 'file-3',
-    title: 'File 3',
-    artist: 'Local',
-    mood: 'amber',
-    category: 'melodic',
-    tags: ['melodic'],
-    src: musicSrc('File 3.mp3'),
-    bpmHint: 124,
-  },
-  {
-    id: 'file-4',
-    title: 'File 4',
-    artist: 'Local',
-    mood: 'deep',
-    category: 'deep',
-    tags: ['deep house'],
-    src: musicSrc('File 4.mp3'),
-    bpmHint: 118,
-  },
-  {
-    id: 'file-5',
-    title: 'File 5',
-    artist: 'Local',
-    mood: 'bright',
-    category: 'trance',
-    tags: ['trance'],
-    src: musicSrc('File 5.mp3'),
-    bpmHint: 132,
-  },
-  {
-    id: 'file-6',
-    title: 'File 6',
-    artist: 'Local',
-    mood: 'deep',
-    category: 'dnb',
-    tags: ['dnb'],
-    src: musicSrc(
-      'obj_wo3DlMOGwrbDjj7DisKw_57801254084_51ac_5f6e_8d6e_f96b0dc89c53fe5b8742aac21eb6588a.mp3',
-    ),
-    bpmHint: 174,
-  },
+  // Fred again..
+  t('did-it-again', 'DID IT AGAIN - Travy,Fred again..,elzzz.mp3', 'DID IT AGAIN', 'Travy · Fred again.. · elzzz', 'amber', 'fredagain', ['fred again', 'emotional'], 124),
+  t('delilah', 'Delilah (pull me out of this) - Fred again..,Delilah Montagu.mp3', 'Delilah (pull me out of this)', 'Fred again.. · Delilah Montagu', 'amber', 'fredagain', ['fred again', 'delilah'], 122),
+  t('halo', 'Halo - Fred again..,LATIN MAFIA,Lil Yachty.mp3', 'Halo', 'Fred again.. · LATIN MAFIA · Lil Yachty', 'warm', 'fredagain', ['fred again', 'halo'], 120),
+  t('quiereme', 'Quiereme - LATIN MAFIA,Fred again..mp3', 'Quiereme', 'LATIN MAFIA · Fred again..', 'warm', 'fredagain', ['fred again', 'latin'], 123),
+  t('benjy-chord', 'benjy chord - Fred again..,LATIN MAFIA.mp3', 'benjy chord', 'Fred again.. · LATIN MAFIA', 'deep', 'fredagain', ['fred again', 'chord'], 118),
+  t('just-stand-there', 'just stand there : One More Time (Mixed).mp3', 'just stand there : One More Time', 'Fred again.. (edit)', 'amber', 'fredagain', ['fred again', 'mixed'], 126),
+
+  // House / club
+  t('no-broke-boys-mix', 'No Broke Boys x Make Me Feel Like - Emilie Charlotte.mp3', 'No Broke Boys × Make Me Feel Like', 'Emilie Charlotte', 'warm', 'house', ['house', 'mashup'], 124),
+  t('make-me-feel', ' Make Me Feel Like.mp3', 'Make Me Feel Like', 'Local', 'warm', 'house', ['house'], 122),
+  t('rizz-ayybo', 'RIZZ-AYYBO.mp3', 'RIZZ', 'AYYBO', 'bright', 'house', ['house', 'tech house'], 128),
+
+  // Techno
+  t('no-broke-boys-techno', 'NO BROKE BOYS (TECHNO) - Sayo Hayes,Strobe.mp3', 'NO BROKE BOYS (TECHNO)', 'Sayo Hayes · Strobe', 'cool', 'techno', ['techno'], 130),
+
+  // Deep
+  t('no-broke-boys-deep', 'No Broke Boys（Deep House） .mp3', 'No Broke Boys (Deep House)', 'Local', 'deep', 'deep', ['deep house'], 118),
+
+  // DnB
+  t('starboy-nia', 'Starboy (feat. Daft Punk) : leavemealone : leavemealone (Nia Archives Remix) .mp3', 'Starboy (Nia Archives Remix)', 'The Weeknd · Nia Archives', 'bright', 'dnb', ['dnb', 'remix'], 174),
 ]
 
 export const PLAYLIST: Track[] = CATALOG
@@ -124,9 +92,19 @@ export function getTracksForCategory(
 ): Track[] {
   if (categoryId === 'custom') return customTracks
   if (categoryId === 'mix') return CATALOG
-  return CATALOG.filter((t) => t.category === categoryId)
+  return CATALOG.filter((track) => track.category === categoryId)
 }
 
 export function categoryById(id: CategoryId): Category {
   return CATEGORIES.find((c) => c.id === id) ?? CATEGORIES[0]
+}
+
+/** Scene pose key: active booth category, or track category when on mix */
+export function sceneDanceStyle(
+  boothCategory: CategoryId,
+  track: Track | null,
+): CategoryId {
+  if (boothCategory !== 'mix' && boothCategory !== 'custom') return boothCategory
+  if (track && track.category !== 'custom') return track.category
+  return 'house'
 }

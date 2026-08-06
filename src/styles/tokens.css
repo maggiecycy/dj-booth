@@ -281,6 +281,28 @@ body {
   }
 }
 
+.start-overlay--minimal {
+  background: linear-gradient(180deg, rgba(6, 10, 14, 0.15), rgba(6, 10, 14, 0.45));
+  backdrop-filter: blur(1px);
+}
+
+.start-overlay--minimal .start-overlay__panel {
+  text-align: center;
+  max-width: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .start-overlay {
   position: absolute;
   inset: 0;

@@ -1,16 +1,11 @@
 # Music credits
 
-Tracks served from this folder (`public/music/`).
+Personal library in `public/music/`. Edit titles in `src/audio/playlist.ts`.
 
-| File | Playlist title | Category |
-|------|----------------|----------|
-| `File 1.mp3` | File 1 | House |
-| `File 2.mp3` | File 2 | Techno |
-| `File 3.mp3` | File 3 | Melodic |
-| `File 4.mp3` | File 4 | Deep House |
-| `File 5.mp3` | File 5 | Trance |
-| `obj_wo3D…6588a.mp3` | File 6 | DnB |
+| File | Category |
+|------|----------|
+| Fred again.. tracks (6) | fredagain |
+| NO BROKE BOYS / Make Me Feel Like / RIZZ | house / techno / deep |
+| Starboy (Nia Archives Remix) | dnb |
 
-Edit display names and categories in `src/audio/playlist.ts`.
-
-**License:** personal use — your own files.
+**License:** personal use only.

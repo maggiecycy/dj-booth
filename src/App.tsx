@@ -27,10 +27,10 @@ export function App() {
   const [starting, setStarting] = useState(false)
   const [intensity, setIntensity] = useState<number>(MOTION.defaultIntensity)
   const [, setClock] = useState(0)
-  const [category, setCategory] = useState<CategoryId>('mix')
+  const [category, setCategory] = useState<CategoryId>('fredagain')
   const [customTracks, setCustomTracks] = useState<Track[]>([])
   const [playlist, setPlaylist] = useState<Track[]>(() =>
-    getTracksForCategory('mix'),
+    getTracksForCategory('fredagain'),
   )
   const [adding, setAdding] = useState(false)
   const [customReady, setCustomReady] = useState(false)
@@ -41,11 +41,13 @@ export function App() {
   const reducedRef = useRef(prefersReduced)
   const trackIndexRef = useRef(snapshot.trackIndex)
   const playlistRef = useRef(playlist)
+  const categoryRef = useRef(category)
 
   intensityRef.current = intensity
   reducedRef.current = prefersReduced
   trackIndexRef.current = snapshot.trackIndex
   playlistRef.current = playlist
+  categoryRef.current = category
 
   const track = playlist[snapshot.trackIndex] ?? null
 
@@ -117,6 +119,7 @@ export function App() {
         playing,
         transition: transitionRef.current,
         reducedMotion: reducedRef.current,
+        boothCategory: categoryRef.current,
       }
       scene.update(dt, frame)
       scene.draw(frame)
