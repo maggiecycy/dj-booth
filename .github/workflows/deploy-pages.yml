@@ -5,24 +5,39 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Branch deploy (gh-pages) — avoids Actions→Pages artifact pipeline which has been
+# stuck in deployment_queued / deployment_in_progress until the hard 10m timeout.
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Skip ~350MB MP3s — catalog audio is loaded from CDN at runtime
+          sparse-checkout: |
+            .github
+            public
+            scripts
+            src
+            index.html
+            package.json
+            package-lock.json
+            tsconfig.json
+            tsconfig.app.json
+            tsconfig.node.json
+            vite.config.ts
+            eslint.config.js
+            README.md
+          sparse-checkout-cone-mode: true
 
-      # ~350MB of MP3s cannot ship on Pages (backend deploy hard-timeout = 10 min).
-      # Catalog audio is loaded from jsDelivr (or vars.MUSIC_CDN_URL) at runtime.
       - name: Drop local music from Pages bundle
         run: rm -rf public/music
 
@@ -52,18 +67,12 @@ jobs:
           VITE_SPOTIFY_CLIENT_ID: ${{ vars.SPOTIFY_CLIENT_ID }}
           VITE_SPOTIFY_REDIRECT_URI: https://maggiecycy.github.io/dj-booth/callback
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
+      - name: Add .nojekyll
+        run: touch dist/.nojekyll
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          force_orphan: true
