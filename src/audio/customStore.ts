@@ -126,6 +126,21 @@ export async function removeCustomTrack(id: string): Promise<void> {
   await idbDelete(id)
 }
 
+/** Persist a new order for custom tracks (by id). */
+export function reorderCustomTracks(orderedIds: string[]): void {
+  const meta = loadCustomMeta()
+  const byId = new Map(meta.map((m) => [m.id, m]))
+  const next: CustomTrackMeta[] = []
+  for (const id of orderedIds) {
+    const m = byId.get(id)
+    if (m) next.push(m)
+  }
+  for (const m of meta) {
+    if (!orderedIds.includes(m.id)) next.push(m)
+  }
+  saveCustomMeta(next)
+}
+
 function metaToTrack(m: CustomTrackMeta, src: string): Track {
   return {
     id: m.id,

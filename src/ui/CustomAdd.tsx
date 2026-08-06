@@ -3,16 +3,10 @@ import { useRef, useState } from 'react'
 interface CustomAddProps {
   busy: boolean
   onAdd: (file: File, title: string, artist: string) => Promise<void>
-  onRemoveCurrent?: () => void
-  hasCurrentCustom?: boolean
+  embedded?: boolean
 }
 
-export function CustomAdd({
-  busy,
-  onAdd,
-  onRemoveCurrent,
-  hasCurrentCustom,
-}: CustomAddProps) {
+export function CustomAdd({ busy, onAdd, embedded }: CustomAddProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')
   const [artist, setArtist] = useState('')
@@ -21,7 +15,7 @@ export function CustomAdd({
   const handleFile = async (file: File | undefined) => {
     if (!file) return
     if (!file.type.startsWith('audio/') && !/\.(mp3|wav|ogg|m4a|flac|aac)$/i.test(file.name)) {
-      setError('请选择音频文件（mp3 / wav / ogg…）')
+      setError('Pick an audio file (mp3 / wav / ogg…)')
       return
     }
     setError(null)
@@ -31,23 +25,24 @@ export function CustomAdd({
       setArtist('')
       if (inputRef.current) inputRef.current.value = ''
     } catch (err) {
-      setError(err instanceof Error ? err.message : '添加失败')
+      setError(err instanceof Error ? err.message : 'Upload failed')
     }
   }
 
   return (
-    <div className="custom-add">
+    <div className={`custom-add${embedded ? ' custom-add--embedded' : ''}`}>
+      <p className="custom-add__heading">Add local track</p>
       <div className="custom-add__fields">
         <input
           className="custom-add__input"
-          placeholder="歌名（可选）"
+          placeholder="Title (optional)"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           aria-label="Track title"
         />
         <input
           className="custom-add__input"
-          placeholder="艺术家（可选）"
+          placeholder="Artist (optional)"
           value={artist}
           onChange={(e) => setArtist(e.target.value)}
           aria-label="Artist"
@@ -64,17 +59,8 @@ export function CustomAdd({
           onChange={(e) => void handleFile(e.target.files?.[0])}
         />
         <label htmlFor="custom-audio-file" className="btn btn--add">
-          {busy ? '解码中…' : '+ 添加本地音频'}
+          {busy ? 'Decoding…' : '+ Add track'}
         </label>
-        {hasCurrentCustom && onRemoveCurrent && (
-          <button
-            type="button"
-            className="btn btn--ghost-text"
-            onClick={onRemoveCurrent}
-          >
-            移除当前
-          </button>
-        )}
       </div>
       {error && (
         <p className="custom-add__error" role="alert">
@@ -82,7 +68,7 @@ export function CustomAdd({
         </p>
       )}
       <p className="custom-add__hint">
-        文件存在本机 IndexedDB，刷新仍在；不会上传到服务器。
+        Stored locally in IndexedDB · delete or reorder in track list
       </p>
     </div>
   )

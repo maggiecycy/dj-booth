@@ -13,6 +13,8 @@ export function CategoryBar({
   counts,
   onSelect,
 }: CategoryBarProps) {
+  const current = categories.find((c) => c.id === active)
+
   return (
     <div className="sets" role="tablist" aria-label="Booth sets">
       <div className="sets__scroll">
@@ -34,9 +36,7 @@ export function CategoryBar({
           )
         })}
       </div>
-      <p className="sets__blurb">
-        {categories.find((c) => c.id === active)?.blurb}
-      </p>
+      {current && <p className="sets__blurb">{current.blurb}</p>}
     </div>
   )
 }

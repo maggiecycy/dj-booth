@@ -34,7 +34,7 @@ export interface ArmPose {
   upper: number
   fore: number
   twist: number
-  hand: 'reach' | 'groove' | 'up' | 'heart'
+  hand: 'reach' | 'groove' | 'up' | 'heart' | 'wave'
 }
 
 export interface StyleArms {
@@ -219,14 +219,99 @@ export function armsForStyle(style: DanceStyleId, k: DanceKinetics): StyleArms {
   }
 }
 
-/** Crowd slot in the pit — procedural batch generation */
+/** Crowd arms — optional overhead wave on beat */
+export function armsForCrowd(
+  style: DanceStyleId,
+  k: DanceKinetics,
+  phase: number,
+  wave: boolean,
+): StyleArms {
+  const base = armsForStyle(style, k)
+  if (!wave) return base
+  const w = Math.sin(phase + k.cue * 3) * 0.5 + 0.5
+  const side = phase % (Math.PI * 2) > Math.PI ? 'left' : 'right'
+  if (side === 'right') {
+    return {
+      ...base,
+      right: {
+        upper: -1.35 + w * 0.45,
+        fore: -0.55 + w * 0.25,
+        twist: 0.15,
+        hand: 'wave',
+      },
+    }
+  }
+  return {
+    ...base,
+    left: {
+      upper: 1.35 - w * 0.45,
+      fore: 0.55 - w * 0.25,
+      twist: -0.15,
+      hand: 'wave',
+    },
+  }
+}
+
+/** Crowd slot — stadium tier (feetYFrac = feet anchor 0…1 down the canvas) */
 export interface CrowdSlot {
+  id: number
   xRatio: number
-  yOff: number
+  /** Feet line as fraction of canvas height */
+  feetYFrac: number
   scale: number
   appearance: CharacterAppearance
-  /** tiny phase offset so the pit feels alive but still synced */
   phase: number
+  row: number
+  wave: boolean
+}
+
+export const CROWD_ROWS = 10
+export const CROWD_FRONT_SPLIT = 5
+
+/** Explicit tier table — wide vertical gaps so rows don't collapse into one band */
+const ROW_FEET_Y = [0.24, 0.32, 0.40, 0.48, 0.55, 0.62, 0.70, 0.78, 0.86, 0.94]
+const ROW_SCALE = [0.10, 0.15, 0.21, 0.29, 0.38, 0.50, 0.66, 0.86, 1.08, 1.38]
+const ROW_ALPHA = [0.28, 0.36, 0.44, 0.54, 0.62, 0.72, 0.82, 0.92, 0.98, 1]
+const ROW_ARC = [0.12, 0.16, 0.20, 0.24, 0.28, 0.32, 0.36, 0.40, 0.44, 0.48]
+
+export function crowdRowLayout(row: number) {
+  const r = Math.max(0, Math.min(CROWD_ROWS - 1, row))
+  return {
+    feetYFrac: ROW_FEET_Y[r],
+    scale: ROW_SCALE[r],
+    arcHalf: ROW_ARC[r],
+    alpha: ROW_ALPHA[r],
+  }
+}
+
+export function crowdRowAlpha(row: number): number {
+  return crowdRowLayout(row).alpha
+}
+
+export function crowdRowScale(_row: number): number {
+  return 1
+}
+
+export function crowdFeetY(slot: CrowdSlot, canvasH: number): number {
+  return canvasH * slot.feetYFrac
+}
+
+/** Head anchor for speech bubbles */
+export function crowdHeadPosition(
+  slot: CrowdSlot,
+  cx: number,
+  canvasH: number,
+  w: number,
+  sizeScale: number,
+): { x: number; y: number } {
+  const feetY = crowdFeetY(slot, canvasH)
+  const scale = slot.scale * sizeScale
+  const charScale = scale < 0.19 ? scale * 2.2 : scale
+  const headLift = scale < 0.19 ? 32 * charScale : 98 * scale
+  return {
+    x: cx + slot.xRatio * w,
+    y: feetY - headLift,
+  }
 }
 
 const SKIN_TONES = [
@@ -274,31 +359,40 @@ function appearanceFromSeed(rand: () => number, i: number): CharacterAppearance 
   }
 }
 
-/** Packed festival pit — ~52 ravers in 3 depth rows */
-export function generateCrowd(seed = 20260806): CrowdSlot[] {
+/** Stadium tiers — each row fixed Y band, front rows much larger */
+export function generateCrowd(seed = 20260808): CrowdSlot[] {
   const rand = mulberry32(seed)
-  const rows = [
-    { count: 18, yBase: 30, ySpread: 10, scale: 0.38, xPad: 0.02 },
-    { count: 18, yBase: 48, ySpread: 12, scale: 0.32, xPad: 0.015 },
-    { count: 16, yBase: 68, ySpread: 14, scale: 0.26, xPad: 0.01 },
-  ]
   const slots: CrowdSlot[] = []
-  let i = 0
-  for (const row of rows) {
-    for (let c = 0; c < row.count; c++) {
-      const t = row.count <= 1 ? 0.5 : c / (row.count - 1)
-      const xRatio = -0.49 + t * 0.98 + (rand() - 0.5) * 0.035
+  let id = 0
+
+  for (let row = 0; row < CROWD_ROWS; row++) {
+    const layout = crowdRowLayout(row)
+    const count = Math.floor(9 + row * 2.4)
+
+    for (let c = 0; c < count; c++) {
+      const u = count <= 1 ? 0.5 : c / (count - 1)
+      let xRatio = -layout.arcHalf + u * layout.arcHalf * 2
+      xRatio += (rand() - 0.5) * 0.01
+
+      if (row < 4 && Math.abs(xRatio) < 0.1) continue
+
       slots.push({
+        id: id++,
         xRatio,
-        yOff: row.yBase + (rand() - 0.5) * row.ySpread,
-        scale: row.scale * (0.9 + rand() * 0.18),
-        appearance: appearanceFromSeed(rand, i),
+        feetYFrac: layout.feetYFrac,
+        scale: layout.scale,
+        appearance: appearanceFromSeed(rand, id),
         phase: rand() * Math.PI * 2,
+        row,
+        wave: row >= CROWD_ROWS - 3 ? rand() > 0.15 : rand() > 0.5,
       })
-      i++
     }
   }
-  return slots.sort((a, b) => b.yOff - a.yOff)
+
+  return slots.sort((a, b) => {
+    if (a.row !== b.row) return a.row - b.row
+    return a.xRatio - b.xRatio
+  })
 }
 
 export const CROWD_LAYOUT: CrowdSlot[] = generateCrowd()
@@ -435,7 +529,18 @@ export function drawClubCharacter(
   k: DanceKinetics,
   arms: StyleArms,
   look: CharacterAppearance,
+  opts?: { upperOnly?: boolean },
 ) {
+  if (scale < 0.19) {
+    drawCrowdSilhouette(ctx, cx, baseY, scale, k, look)
+    return
+  }
+
+  if (opts?.upperOnly) {
+    drawUpperBody(ctx, cx, baseY, scale, k, arms, look)
+    return
+  }
+
   ctx.save()
   ctx.translate(cx + k.hipX * 0.35, baseY - k.bounce - k.breathY)
   ctx.scale(scale, scale)
@@ -516,6 +621,110 @@ export function drawClubCharacter(
 
   ctx.restore()
   ctx.restore()
+  ctx.restore()
+}
+
+/** DJ behind decks — torso, arms, head only */
+function drawUpperBody(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  baseY: number,
+  scale: number,
+  k: DanceKinetics,
+  arms: StyleArms,
+  look: CharacterAppearance,
+) {
+  ctx.save()
+  ctx.translate(cx + k.hipX * 0.2, baseY - k.bounce * 0.6 - k.breathY)
+  ctx.scale(scale, scale)
+  ctx.rotate(k.hipX * 0.008 * arms.stance)
+
+  ctx.save()
+  ctx.translate(0, -36)
+  ctx.rotate(arms.lean)
+
+  const bodyGrad = ctx.createLinearGradient(0, -70, 0, 20)
+  bodyGrad.addColorStop(0, look.top)
+  bodyGrad.addColorStop(1, '#151b24')
+  ctx.fillStyle = bodyGrad
+  roundRect(ctx, -26, -72, 52, 78, 16)
+  ctx.fill()
+
+  ctx.fillStyle = look.topAccent
+  roundRect(ctx, -26, -50, 5, 40, 2)
+  ctx.fill()
+
+  ctx.fillStyle = look.top
+  ctx.beginPath()
+  ctx.ellipse(-24, -62, 12, 9, -0.25, 0, Math.PI * 2)
+  ctx.ellipse(24, -62, 12, 9, 0.25, 0, Math.PI * 2)
+  ctx.fill()
+
+  drawArm(ctx, look, 22, -58, arms.right)
+  drawArm(ctx, look, -22, -58, arms.left)
+
+  ctx.fillStyle = look.skin
+  roundRect(ctx, -6, -88, 12, 14, 4)
+  ctx.fill()
+
+  ctx.save()
+  ctx.translate(0, -98)
+  ctx.rotate(arms.headTilt)
+
+  if (look.hasHeadphones) {
+    ctx.strokeStyle = '#c8d0da'
+    ctx.lineWidth = 4
+    ctx.beginPath()
+    ctx.arc(0, -2, 22, Math.PI * 1.05, Math.PI * 1.95)
+    ctx.stroke()
+  }
+
+  drawHair(ctx, look)
+  ctx.fillStyle = look.skin
+  ctx.beginPath()
+  ctx.ellipse(0, 0, 18, 20, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  if (look.hasHeadphones) {
+    ctx.fillStyle = '#252b34'
+    ctx.beginPath()
+    ctx.ellipse(-22, 0, 7, 10, 0.15, 0, Math.PI * 2)
+    ctx.ellipse(22, 0, 7, 10, -0.2, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  drawFace(ctx, look.expression)
+  ctx.restore()
+  ctx.restore()
+  ctx.restore()
+}
+
+/** Lightweight back-row raver — still bounces with beat */
+function drawCrowdSilhouette(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  baseY: number,
+  scale: number,
+  k: DanceKinetics,
+  look: CharacterAppearance,
+) {
+  const bounce = k.bounce * scale * 0.8
+  const sway = k.hipX * 0.02
+  ctx.save()
+  ctx.translate(cx + sway, baseY - bounce)
+  ctx.scale(scale * 2.2, scale * 2.2)
+  ctx.fillStyle = look.top
+  ctx.beginPath()
+  ctx.ellipse(0, -18, 10, 14, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = look.skin
+  ctx.beginPath()
+  ctx.arc(0, -32, 7, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = look.hair
+  ctx.beginPath()
+  ctx.arc(0, -36, 7, Math.PI, Math.PI * 2)
+  ctx.fill()
   ctx.restore()
 }
 
@@ -693,6 +902,20 @@ function drawArm(
     ctx.beginPath()
     ctx.arc(-3, 0, 5, 0, Math.PI * 2)
     ctx.arc(3, 0, 5, 0, Math.PI * 2)
+    ctx.fill()
+  } else if (pose.hand === 'wave') {
+    ctx.strokeStyle = look.skin
+    ctx.lineWidth = 2.5
+    ctx.lineCap = 'round'
+    for (let f = -1; f <= 1; f++) {
+      ctx.beginPath()
+      ctx.moveTo(f * 3, -4)
+      ctx.quadraticCurveTo(f * 6, -10, f * 4, -14)
+      ctx.stroke()
+    }
+    ctx.fillStyle = look.skin
+    ctx.beginPath()
+    ctx.ellipse(0, 0, 7, 5, 0, 0, Math.PI * 2)
     ctx.fill()
   } else {
     ctx.beginPath()
