@@ -4,6 +4,12 @@
 
 站名可在 `src/config.ts` 的 `SITE.name` 一处修改。
 
+## Live demo
+
+**https://maggiecycy.github.io/dj-booth/**
+
+（push 到 `main` 后 GitHub Actions 自动部署，约 1–2 分钟生效）
+
 ## 产品简介
 
 - 第一屏就是打碟舞台（品牌 + 舞台 + 主控）
@@ -60,7 +66,13 @@ npm run build
 npm run preview
 ```
 
-部署：`dist/` 可丢到 Vercel / GitHub Pages 等静态托管。
+GitHub Pages 本地预览（与线上一致的路径）：
+
+```bash
+GITHUB_PAGES=true npm run build && npx vite preview --base /dj-booth/
+```
+
+部署：push 到 `main` → `.github/workflows/deploy-pages.yml` 自动发布到 GitHub Pages。
 
 ## 如何替换我自己的歌曲
 

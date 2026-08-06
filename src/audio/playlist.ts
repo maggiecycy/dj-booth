@@ -41,9 +41,10 @@ export const CATEGORIES: Category[] = [
   { id: 'custom', label: '自定义', blurb: '浏览器里临时添加' },
 ]
 
-/** Build URL-safe path for files in public/music/ */
+/** Build URL-safe path for files in public/music/ (respects GitHub Pages base) */
 export function musicSrc(filename: string): string {
-  return `/music/${encodeURIComponent(filename)}`
+  const base = import.meta.env.BASE_URL
+  return `${base}music/${encodeURIComponent(filename)}`
 }
 
 /**
