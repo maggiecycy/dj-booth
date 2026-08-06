@@ -219,136 +219,89 @@ export function armsForStyle(style: DanceStyleId, k: DanceKinetics): StyleArms {
   }
 }
 
-/** Crowd slots — varied look, same dance kinetics as DJ */
-export const CROWD_LAYOUT: {
+/** Crowd slot in the pit — procedural batch generation */
+export interface CrowdSlot {
   xRatio: number
   yOff: number
   scale: number
   appearance: CharacterAppearance
-}[] = [
-  {
-    xRatio: -0.38,
-    yOff: 18,
-    scale: 0.52,
-    appearance: {
-      skin: '#c89b7b',
-      hair: '#2a1810',
-      top: '#4a3560',
-      topAccent: '#9b7ec8',
-      pants: '#1a2030',
-      shoeAccent: '#e8a46a',
-      expression: 'smile',
-      hairStyle: 'long',
-    },
-  },
-  {
-    xRatio: -0.28,
-    yOff: 28,
-    scale: 0.48,
-    appearance: {
-      skin: '#e0bc9a',
-      hair: '#f0e8d0',
-      top: '#2d4a5a',
-      topAccent: '#6ec8e8',
-      pants: '#121820',
-      shoeAccent: '#ffffff',
-      expression: 'closed',
-      hairStyle: 'short',
-      hasHeadphones: true,
-    },
-  },
-  {
-    xRatio: -0.18,
-    yOff: 22,
-    scale: 0.5,
-    appearance: {
-      skin: '#a87858',
-      hair: '#141820',
-      top: '#8b3030',
-      topAccent: '#ff8866',
-      pants: '#0e1018',
-      shoeAccent: '#ff6644',
-      expression: 'wide',
-      hairStyle: 'curly',
-    },
-  },
-  {
-    xRatio: 0.18,
-    yOff: 22,
-    scale: 0.5,
-    appearance: {
-      skin: '#d4b39a',
-      hair: '#1a1e26',
-      top: '#3d5240',
-      topAccent: '#88cc88',
-      pants: '#1c2430',
-      shoeAccent: '#aacc88',
-      expression: 'cool',
-      hairStyle: 'cap',
-    },
-  },
-  {
-    xRatio: 0.28,
-    yOff: 28,
-    scale: 0.48,
-    appearance: {
-      skin: '#b89070',
-      hair: '#402818',
-      top: '#524030',
-      topAccent: '#d4a060',
-      pants: '#181410',
-      shoeAccent: '#c89050',
-      expression: 'focus',
-      hairStyle: 'bun',
-      hasHeadphones: true,
-    },
-  },
-  {
-    xRatio: 0.38,
-    yOff: 18,
-    scale: 0.52,
-    appearance: {
-      skin: '#f0d0b0',
-      hair: '#303840',
-      top: '#404858',
-      topAccent: '#c0c8d8',
-      pants: '#222830',
-      shoeAccent: '#8899aa',
-      expression: 'smile',
-      hairStyle: 'short',
-    },
-  },
-  {
-    xRatio: -0.45,
-    yOff: 38,
-    scale: 0.42,
-    appearance: {
-      skin: '#9a7058',
-      hair: '#0a0c10',
-      top: '#1a2838',
-      topAccent: '#4488cc',
-      pants: '#0a0e14',
-      shoeAccent: '#336699',
-      expression: 'closed',
-      hairStyle: 'short',
-    },
-  },
-  {
-    xRatio: 0.45,
-    yOff: 38,
-    scale: 0.42,
-    appearance: {
-      skin: '#dcb090',
-      hair: '#281810',
-      top: '#5a2848',
-      topAccent: '#ff88bb',
-      pants: '#201018',
-      shoeAccent: '#ff66aa',
-      expression: 'wide',
-      hairStyle: 'long',
-    },
-  },
+  /** tiny phase offset so the pit feels alive but still synced */
+  phase: number
+}
+
+const SKIN_TONES = [
+  '#f0d0b0', '#d4b39a', '#e0bc9a', '#c89b7b', '#b89070', '#a87858', '#9a7058', '#8a6048',
 ]
+const TOP_COLORS = [
+  ['#1a2838', '#4488cc'], ['#4a3560', '#9b7ec8'], ['#8b3030', '#ff8866'],
+  ['#3d5240', '#88cc88'], ['#524030', '#d4a060'], ['#2a3038', '#c8d0da'],
+  ['#404858', '#c0c8d8'], ['#5a2848', '#ff88bb'], ['#283828', '#88ff66'],
+  ['#1a1e24', '#8899aa'], ['#3a3848', '#ffaa66'], ['#2d4a5a', '#6ec8e8'],
+]
+const EXPRESSIONS: CharacterAppearance['expression'][] = [
+  'focus', 'smile', 'closed', 'wide', 'cool',
+]
+const HAIR_STYLES: CharacterAppearance['hairStyle'][] = [
+  'short', 'long', 'bun', 'cap', 'curly',
+]
+
+function mulberry32(seed: number) {
+  return () => {
+    seed |= 0
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function appearanceFromSeed(rand: () => number, i: number): CharacterAppearance {
+  const skin = SKIN_TONES[Math.floor(rand() * SKIN_TONES.length)]
+  const [top, accent] = TOP_COLORS[Math.floor(rand() * TOP_COLORS.length)]
+  const hairStyle = HAIR_STYLES[Math.floor(rand() * HAIR_STYLES.length)]
+  const expression = EXPRESSIONS[Math.floor(rand() * EXPRESSIONS.length)]
+  const hairHue = Math.floor(rand() * 40)
+  return {
+    skin,
+    hair: `hsl(${hairHue + 10}, 18%, ${12 + (i % 5) * 4}%)`,
+    top,
+    topAccent: accent,
+    pants: '#0e1218',
+    shoeAccent: accent,
+    expression,
+    hairStyle,
+    hasHeadphones: rand() > 0.72,
+  }
+}
+
+/** Packed festival pit — ~52 ravers in 3 depth rows */
+export function generateCrowd(seed = 20260806): CrowdSlot[] {
+  const rand = mulberry32(seed)
+  const rows = [
+    { count: 18, yBase: 30, ySpread: 10, scale: 0.38, xPad: 0.02 },
+    { count: 18, yBase: 48, ySpread: 12, scale: 0.32, xPad: 0.015 },
+    { count: 16, yBase: 68, ySpread: 14, scale: 0.26, xPad: 0.01 },
+  ]
+  const slots: CrowdSlot[] = []
+  let i = 0
+  for (const row of rows) {
+    for (let c = 0; c < row.count; c++) {
+      const t = row.count <= 1 ? 0.5 : c / (row.count - 1)
+      const xRatio = -0.49 + t * 0.98 + (rand() - 0.5) * 0.035
+      slots.push({
+        xRatio,
+        yOff: row.yBase + (rand() - 0.5) * row.ySpread,
+        scale: row.scale * (0.9 + rand() * 0.18),
+        appearance: appearanceFromSeed(rand, i),
+        phase: rand() * Math.PI * 2,
+      })
+      i++
+    }
+  }
+  return slots.sort((a, b) => b.yOff - a.yOff)
+}
+
+export const CROWD_LAYOUT: CrowdSlot[] = generateCrowd()
 
 /** DJ look per booth category */
 export function djAppearance(style: DanceStyleId): CharacterAppearance {
