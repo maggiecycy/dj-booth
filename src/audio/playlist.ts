@@ -1,3 +1,5 @@
+import { MUSIC } from '../config'
+
 export type TrackMood = 'warm' | 'cool' | 'amber' | 'deep' | 'bright' | 'mist'
 
 export type CategoryId =
@@ -42,6 +44,10 @@ export const CATEGORIES: Category[] = [
 ]
 
 export function musicSrc(filename: string): string {
+  if (/^(https?:|blob:)/.test(filename)) return filename
+  if (MUSIC.cdnBase) {
+    return `${MUSIC.cdnBase}/${encodeURIComponent(filename)}`
+  }
   const base = import.meta.env.BASE_URL
   return `${base}music/${encodeURIComponent(filename)}`
 }
@@ -69,8 +75,7 @@ export const CATALOG: Track[] = [
   t('benjy-chord', 'benjy chord - Fred again..,LATIN MAFIA.mp3', 'benjy chord', 'Fred again.. · LATIN MAFIA', 'deep', 'fredagain', ['fred again'], 118),
   t('just-stand-there', 'just stand there : One More Time (Mixed).mp3', 'just stand there : One More Time', 'Fred again.. (edit)', 'amber', 'fredagain', ['fred again'], 126),
 
-  // ── House (9) ──────────────────────────────────────────────────────
-  t('no-broke-boys-mix', 'No Broke Boys x Make Me Feel Like - Emilie Charlotte.mp3', 'No Broke Boys × Make Me Feel Like', 'Emilie Charlotte', 'warm', 'house', ['house'], 124),
+  // ── House (8) ──────────────────────────────────────────────────────
   t('make-me-feel', ' Make Me Feel Like.mp3', 'Make Me Feel Like', 'Local', 'warm', 'house', ['house'], 122),
   t('rizz-ayybo', 'RIZZ-AYYBO.mp3', 'RIZZ', 'AYYBO', 'bright', 'house', ['house', 'tech house'], 128),
   t('house-stardust', 'Music Sounds Better With You.mp3', 'Music Sounds Better With You', 'Stardust', 'warm', 'house', ['house', 'classic'], 124),
@@ -80,8 +85,7 @@ export const CATALOG: Track[] = [
   t('house-your-love', ' Your Love.mp3', 'Your Love', 'Frankie Knuckles', 'deep', 'house', ['house', 'classic'], 120),
   t('house-nanana', ' (It Goes Like) Nanana.mp3', '(It Goes Like) Nanana', 'Peggy Gou', 'bright', 'house', ['house', 'classic'], 126),
 
-  // ── Techno (10) ────────────────────────────────────────────────────
-  t('no-broke-boys-techno', 'NO BROKE BOYS (TECHNO) - Sayo Hayes,Strobe.mp3', 'NO BROKE BOYS (TECHNO)', 'Sayo Hayes · Strobe', 'cool', 'techno', ['techno'], 130),
+  // ── Techno (9) ─────────────────────────────────────────────────────
   t('techno-age-of-love', 'The Age Of Love (Charlotte de Witte & Enrico Sangiuliano Remix) .mp3', 'The Age Of Love', 'Charlotte de Witte · Enrico Sangiuliano', 'cool', 'techno', ['techno', 'classic'], 132),
   t('techno-amelie-mind', 'amelie-lens-in-my-mind.mp3', 'In My Mind', 'Amelie Lens', 'cool', 'techno', ['techno', 'classic'], 135),
   t('techno-first-light', 'First Light - Amelie Lens.mp3', 'First Light', 'Amelie Lens', 'cool', 'techno', ['techno'], 134),

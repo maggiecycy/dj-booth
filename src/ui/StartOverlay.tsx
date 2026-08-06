@@ -3,10 +3,11 @@ import { SITE } from '../config'
 interface StartOverlayProps {
   loading: boolean
   error: string | null
+  onWarmUp?: () => void
   onStart: () => void
 }
 
-export function StartOverlay({ loading, error, onStart }: StartOverlayProps) {
+export function StartOverlay({ loading, error, onWarmUp, onStart }: StartOverlayProps) {
   return (
     <div className="start-overlay">
       <div className="start-overlay__panel">
@@ -16,6 +17,7 @@ export function StartOverlay({ loading, error, onStart }: StartOverlayProps) {
         <button
           type="button"
           className="btn btn--start"
+          onPointerDown={() => onWarmUp?.()}
           onClick={onStart}
           disabled={loading}
         >

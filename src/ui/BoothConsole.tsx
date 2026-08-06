@@ -27,6 +27,7 @@ interface BoothConsoleProps {
   onMoveCustom?: (from: number, to: number) => void
   onAddCustom?: (file: File, title: string, artist: string) => Promise<void>
   onShoutMood?: (text: string) => void
+  onAudioWarmUp?: () => void
 }
 
 function formatTime(sec: number): string {
@@ -57,6 +58,7 @@ export function BoothConsole({
   onMoveCustom,
   onAddCustom,
   onShoutMood,
+  onAudioWarmUp,
 }: BoothConsoleProps) {
   const [playerOpen, setPlayerOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -115,6 +117,7 @@ export function BoothConsole({
                 type="button"
                 className="btn btn--mini-play"
                 aria-label={playing ? 'Pause' : 'Play'}
+                onPointerDown={() => onAudioWarmUp?.()}
                 onClick={onPlayPause}
               >
                 {playing ? <PauseIcon /> : <PlayIcon />}

@@ -15,6 +15,14 @@ export const AUDIO = {
   highBins: [50, 120],
 } as const
 
+/** Optional CDN origin for catalog MP3s — set VITE_MUSIC_CDN_URL at build time. */
+export const MUSIC = {
+  cdnBase: (import.meta.env.VITE_MUSIC_CDN_URL as string | undefined)?.replace(
+    /\/$/,
+    '',
+  ),
+} as const
+
 export const MOTION = {
   defaultIntensity: 1 as number,
   reducedIntensity: 0.25 as number,

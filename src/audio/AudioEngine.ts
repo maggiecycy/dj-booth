@@ -1,5 +1,6 @@
 import { AUDIO } from '../config'
 import { averageRange, type BandEnergy } from './analysis'
+import { prefersMediaElementPlayback } from './platformAudio'
 import type { Track } from './playlist'
 
 export type LoadState = 'idle' | 'loading' | 'ready' | 'error' | 'playing' | 'paused'
@@ -16,18 +17,19 @@ export interface EngineSnapshot {
 type Listener = (snap: EngineSnapshot) => void
 
 /**
- * AudioEngine — owns AudioContext, decoding, playback, and AnalyserNode.
+ * AudioEngine — Web Audio playback with AnalyserNode-driven visuals.
  *
- * Architecture:
- *   decodeAudioData → AudioBufferSourceNode → GainNode → AnalyserNode → destination
- *
- * Note: BufferSource is one-shot; we recreate it on each play/seek/track change.
+ * Desktop: decodeAudioData → AudioBufferSourceNode
+ * iOS: HTMLAudioElement → MediaElementSource (Safari blocks silent BufferSource)
  */
 export class AudioEngine {
   private ctx: AudioContext | null = null
   private analyser: AnalyserNode | null = null
   private gain: GainNode | null = null
   private source: AudioBufferSourceNode | null = null
+  private mediaEl: HTMLAudioElement | null = null
+  private mediaSource: MediaElementAudioSourceNode | null = null
+  private readonly useMediaElement = prefersMediaElementPlayback()
   private buffers = new Map<string, AudioBuffer>()
   private playlist: Track[] = []
   private trackIndex = 0
@@ -43,7 +45,6 @@ export class AudioEngine {
   private listeners = new Set<Listener>()
   private prevOverall = 0
   private beatFlash = 0
-  /** Cached for useSyncExternalStore (must be referentially stable until emit). */
   private cachedSnap: EngineSnapshot
 
   constructor(playlist: Track[]) {
@@ -51,14 +52,65 @@ export class AudioEngine {
     this.cachedSnap = this.buildSnapshot()
   }
 
+  usesMediaElement(): boolean {
+    return this.useMediaElement
+  }
+
   getPlaylist(): Track[] {
     return this.playlist
   }
 
+  /** Assign tracks without stopping playback (used before iOS kickstart). */
+  assignPlaylist(tracks: Track[], index = 0): void {
+    this.playlist = tracks
+    this.trackIndex = Math.min(index, Math.max(0, tracks.length - 1))
+    this.offset = 0
+    this.duration = 0
+    this.error = null
+    this.loadState = tracks.length === 0 ? 'idle' : 'ready'
+    this.emit()
+  }
+
   /**
-   * Swap the active set (genre booth / mix / custom).
-   * Resets transport and optionally autoplays the first track.
+   * Synchronous — call at the start of a tap/click handler (before any await).
+   * Required on iOS so audio routes to the media channel.
    */
+  beginFromUserGesture(): void {
+    this.ensureContext()
+    if (this.ctx?.state === 'suspended') {
+      void this.ctx.resume()
+    }
+    if (this.useMediaElement) {
+      this.ensureMediaElement()
+    } else {
+      this.playSilentBuffer()
+    }
+    this.unlocked = true
+    this.emit()
+  }
+
+  /**
+   * Start the current track synchronously inside a user gesture (iOS autoplay).
+   */
+  kickstartFromUserGesture(): void {
+    if (!this.useMediaElement || this.playlist.length === 0) return
+    this.beginFromUserGesture()
+    const track = this.playlist[this.trackIndex]
+    if (!track || !this.mediaEl) return
+
+    this.attachMediaHandlers()
+    this.mediaEl.src = track.src
+    this.mediaEl.currentTime = this.offset
+    void this.mediaEl.play().catch(() => {
+      this.loadState = 'error'
+      this.error = 'Tap play to start audio (iOS)'
+      this.emit()
+    })
+    this.playing = true
+    this.loadState = 'playing'
+    this.emit()
+  }
+
   async setPlaylist(tracks: Track[], autoplay = true): Promise<void> {
     this.stopSource(true)
     this.playing = false
@@ -78,8 +130,20 @@ export class AudioEngine {
 
     this.loadState = 'loading'
     this.emit()
+
     try {
+      if (this.useMediaElement) {
+        if (autoplay && this.unlocked) {
+          await this.play()
+        } else {
+          this.loadState = 'ready'
+          this.emit()
+        }
+        return
+      }
+
       await this.preload(0)
+      this.preloadNext()
       if (autoplay && this.unlocked) await this.play()
       else {
         this.loadState = 'ready'
@@ -90,7 +154,6 @@ export class AudioEngine {
     }
   }
 
-  /** Inject a decoded buffer directly (used when custom file was just read). */
   cacheBuffer(trackId: string, buffer: AudioBuffer): void {
     this.buffers.set(trackId, buffer)
   }
@@ -106,7 +169,6 @@ export class AudioEngine {
     for (const fn of this.listeners) fn(this.cachedSnap)
   }
 
-  /** Stable snapshot reference — do not allocate on every read. */
   snapshot(): EngineSnapshot {
     return this.cachedSnap
   }
@@ -123,6 +185,9 @@ export class AudioEngine {
   }
 
   getCurrentTime(): number {
+    if (this.useMediaElement && this.mediaEl && this.playing) {
+      return Math.min(this.duration || Infinity, this.mediaEl.currentTime)
+    }
     if (!this.ctx || !this.playing) return this.offset
     return Math.min(
       this.duration,
@@ -138,37 +203,27 @@ export class AudioEngine {
     return this.beatFlash
   }
 
-  /** Call from a user gesture (click/tap) before any playback. */
   async unlock(): Promise<void> {
-    if (!this.ctx) {
-      this.ctx = new AudioContext()
-      this.gain = this.ctx.createGain()
-      this.gain.gain.value = 0.9
-      this.analyser = this.ctx.createAnalyser()
-      this.analyser.fftSize = AUDIO.fftSize
-      this.analyser.smoothingTimeConstant = AUDIO.smoothing
-      this.gain.connect(this.analyser)
-      this.analyser.connect(this.ctx.destination)
-      this.freqData = new Uint8Array(this.analyser.frequencyBinCount)
-      this.timeData = new Uint8Array(this.analyser.fftSize)
-    }
-    if (this.ctx.state === 'suspended') {
+    this.beginFromUserGesture()
+    if (this.ctx?.state === 'suspended') {
       await this.ctx.resume()
     }
-    this.unlocked = true
-    this.emit()
   }
 
-  async preload(index = this.trackIndex): Promise<void> {
+  async preload(index = this.trackIndex, background = false): Promise<void> {
+    if (this.useMediaElement) return
+
     const track = this.playlist[index]
     if (!track) return
     if (this.buffers.has(track.id)) return
     if (!this.ctx) await this.unlock()
     if (!this.ctx) throw new Error('AudioContext unavailable')
 
-    this.loadState = 'loading'
-    this.error = null
-    this.emit()
+    if (!background) {
+      this.loadState = 'loading'
+      this.error = null
+      this.emit()
+    }
 
     try {
       const res = await fetch(track.src)
@@ -180,31 +235,38 @@ export class AudioEngine {
       if (index === this.trackIndex) {
         this.duration = buffer.duration
         this.loadState = this.playing ? 'playing' : 'ready'
+        this.emit()
       }
-      this.emit()
     } catch (err) {
-      this.loadState = 'error'
-      this.error =
-        err instanceof Error
-          ? err.message
-          : 'Failed to decode audio. Try another track.'
-      this.emit()
+      if (!background) {
+        this.loadState = 'error'
+        this.error =
+          err instanceof Error
+            ? err.message
+            : 'Failed to decode audio. Try another track.'
+        this.emit()
+      }
       throw err
     }
   }
 
-  async preloadAll(): Promise<void> {
-    for (let i = 0; i < this.playlist.length; i++) {
-      try {
-        await this.preload(i)
-      } catch {
-        // Keep going — individual track errors are surfaced via snapshot
-      }
-    }
+  preloadNext(): void {
+    if (this.useMediaElement || this.playlist.length <= 1) return
+    const next = (this.trackIndex + 1) % this.playlist.length
+    void this.preload(next, true).catch(() => {})
   }
 
   async play(): Promise<void> {
-    await this.unlock()
+    this.beginFromUserGesture()
+    if (this.ctx?.state === 'suspended') {
+      await this.ctx.resume()
+    }
+
+    if (this.useMediaElement) {
+      await this.playMediaElement()
+      return
+    }
+
     await this.preload(this.trackIndex)
     const track = this.playlist[this.trackIndex]
     const buffer = track ? this.buffers.get(track.id) : undefined
@@ -215,7 +277,7 @@ export class AudioEngine {
       return
     }
 
-    this.stopSource(false)
+    this.stopBufferSource(false)
     const src = this.ctx.createBufferSource()
     src.buffer = buffer
     src.connect(this.gain)
@@ -225,9 +287,8 @@ export class AudioEngine {
         void this.next(true)
       }
     }
-    const when = 0
     const offset = Math.min(this.offset, Math.max(0, buffer.duration - 0.05))
-    src.start(when, offset)
+    src.start(0, offset)
     this.source = src
     this.startedAt = this.ctx.currentTime
     this.offset = offset
@@ -235,13 +296,78 @@ export class AudioEngine {
     this.duration = buffer.duration
     this.loadState = 'playing'
     this.emit()
+    this.preloadNext()
+  }
+
+  private async playMediaElement(): Promise<void> {
+    const track = this.playlist[this.trackIndex]
+    if (!track) return
+
+    this.ensureContext()
+    this.ensureMediaElement()
+    if (!this.mediaEl || !this.ctx) return
+
+    this.attachMediaHandlers()
+    this.loadState = 'loading'
+    this.error = null
+    this.emit()
+
+    const absoluteSrc = new URL(track.src, window.location.href).href
+    if (this.mediaEl.src !== absoluteSrc) {
+      this.mediaEl.src = track.src
+      await new Promise<void>((resolve, reject) => {
+        if (!this.mediaEl) return reject(new Error('No media element'))
+        const el = this.mediaEl
+        const onReady = () => {
+          cleanup()
+          resolve()
+        }
+        const onErr = () => {
+          cleanup()
+          reject(new Error(`Could not load ${track.title}`))
+        }
+        const cleanup = () => {
+          el.removeEventListener('loadedmetadata', onReady)
+          el.removeEventListener('error', onErr)
+        }
+        if (el.readyState >= 1) {
+          resolve()
+          return
+        }
+        el.addEventListener('loadedmetadata', onReady)
+        el.addEventListener('error', onErr)
+      })
+    }
+
+    this.mediaEl.currentTime = this.offset
+    try {
+      await this.mediaEl.play()
+    } catch (err) {
+      this.loadState = 'error'
+      this.error =
+        err instanceof Error ? err.message : 'Playback blocked — tap play again'
+      this.emit()
+      throw err
+    }
+
+    this.duration = this.mediaEl.duration || 0
+    this.playing = true
+    this.loadState = 'playing'
+    this.emit()
   }
 
   pause(): void {
     if (!this.playing) return
-    this.offset = this.getCurrentTime()
+
+    if (this.useMediaElement && this.mediaEl) {
+      this.offset = this.mediaEl.currentTime
+      this.mediaEl.pause()
+    } else {
+      this.offset = this.getCurrentTime()
+      this.stopBufferSource(false)
+    }
+
     this.playing = false
-    this.stopSource(false)
     this.loadState = 'paused'
     this.emit()
   }
@@ -253,6 +379,9 @@ export class AudioEngine {
 
   async seek(time: number): Promise<void> {
     this.offset = Math.max(0, Math.min(time, this.duration || time))
+    if (this.useMediaElement && this.mediaEl) {
+      this.mediaEl.currentTime = this.offset
+    }
     if (this.playing) await this.play()
     else this.emit()
   }
@@ -268,7 +397,17 @@ export class AudioEngine {
     this.loadState = 'loading'
     this.emit()
     try {
+      if (this.useMediaElement) {
+        if (autoplay) await this.play()
+        else {
+          this.loadState = 'ready'
+          this.emit()
+        }
+        return
+      }
+
       await this.preload(index)
+      this.preloadNext()
       if (autoplay) await this.play()
       else {
         const track = this.playlist[index]
@@ -299,10 +438,6 @@ export class AudioEngine {
     return this.playing
   }
 
-  /**
-   * Sample analyser bands once per frame (called from PerformanceLoop).
-   * Also updates a cheap onset / energy-spike flash.
-   */
   sampleBands(dt: number): BandEnergy {
     const empty = { bass: 0, mid: 0, high: 0, overall: 0 }
     if (!this.analyser || !this.freqData || !this.playing) {
@@ -324,7 +459,6 @@ export class AudioEngine {
     )
     const overall = bass * 0.5 + mid * 0.35 + high * 0.15
 
-    // Energy spike / onset approximation (not perfect beat tracking)
     const delta = overall - this.prevOverall
     if (delta > 0.08 && overall > 0.22) {
       this.beatFlash = 1
@@ -342,7 +476,59 @@ export class AudioEngine {
     return this.timeData
   }
 
-  private stopSource(resetOffset: boolean) {
+  private ensureContext(): void {
+    if (this.ctx) return
+    this.ctx = new AudioContext()
+    this.gain = this.ctx.createGain()
+    this.gain.gain.value = 0.9
+    this.analyser = this.ctx.createAnalyser()
+    this.analyser.fftSize = AUDIO.fftSize
+    this.analyser.smoothingTimeConstant = AUDIO.smoothing
+    this.gain.connect(this.analyser)
+    this.analyser.connect(this.ctx.destination)
+    this.freqData = new Uint8Array(this.analyser.frequencyBinCount)
+    this.timeData = new Uint8Array(this.analyser.fftSize)
+  }
+
+  private ensureMediaElement(): void {
+    this.ensureContext()
+    if (this.mediaEl || !this.ctx || !this.gain) return
+
+    const el = new Audio()
+    el.preload = 'auto'
+    el.setAttribute('playsinline', '')
+    el.setAttribute('webkit-playsinline', '')
+    this.mediaEl = el
+    this.mediaSource = this.ctx.createMediaElementSource(el)
+    this.mediaSource.connect(this.gain)
+  }
+
+  private attachMediaHandlers(): void {
+    if (!this.mediaEl) return
+    this.mediaEl.onended = () => {
+      if (!this.playing) return
+      if (this.getCurrentTime() >= this.duration - 0.05) {
+        void this.next(true)
+      }
+    }
+    this.mediaEl.onloadedmetadata = () => {
+      if (!this.mediaEl) return
+      this.duration = this.mediaEl.duration || this.duration
+      this.emit()
+    }
+  }
+
+  private playSilentBuffer(): void {
+    if (!this.ctx) return
+    const buffer = this.ctx.createBuffer(1, 1, this.ctx.sampleRate)
+    const ping = this.ctx.createBufferSource()
+    ping.buffer = buffer
+    ping.connect(this.ctx.destination)
+    ping.start(0)
+    ping.stop(this.ctx.currentTime + 0.001)
+  }
+
+  private stopBufferSource(resetOffset: boolean) {
     if (this.source) {
       try {
         this.source.onended = null
@@ -356,9 +542,22 @@ export class AudioEngine {
     if (resetOffset) this.offset = 0
   }
 
+  private stopSource(resetOffset: boolean) {
+    if (this.useMediaElement && this.mediaEl) {
+      this.mediaEl.onended = null
+      this.mediaEl.pause()
+      if (resetOffset) this.mediaEl.currentTime = 0
+    } else {
+      this.stopBufferSource(resetOffset)
+    }
+    if (resetOffset) this.offset = 0
+  }
+
   dispose(): void {
     this.stopSource(true)
     this.playing = false
+    this.mediaEl = null
+    this.mediaSource = null
     void this.ctx?.close()
     this.ctx = null
     this.listeners.clear()

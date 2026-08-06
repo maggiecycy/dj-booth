@@ -274,14 +274,26 @@ export function App() {
     [customTracks, engine, started],
   )
 
+  const warmUpAudio = useCallback(() => {
+    engine.beginFromUserGesture()
+  }, [engine])
+
   const handleStart = async () => {
+    engine.beginFromUserGesture()
+    const initial = getTracksForCategory(category, customTracks)
+    setPlaylist(initial)
+
+    if (engine.usesMediaElement()) {
+      engine.assignPlaylist(initial)
+      engine.kickstartFromUserGesture()
+      setStarted(true)
+      return
+    }
+
     setStarting(true)
     try {
       await engine.unlock()
-      const initial = getTracksForCategory(category, customTracks)
-      setPlaylist(initial)
       await engine.setPlaylist(initial, true)
-      void engine.preloadAll()
       setStarted(true)
     } catch {
       /* surfaced via snapshot.error */
@@ -377,6 +389,7 @@ export function App() {
           <StartOverlay
             loading={starting || snapshot.loadState === 'loading'}
             error={snapshot.error}
+            onWarmUp={warmUpAudio}
             onStart={() => void handleStart()}
           />
         )}
@@ -441,6 +454,7 @@ export function App() {
                 onMoveCustom={(from, to) => void handleMoveCustom(from, to)}
                 onAddCustom={handleAddCustom}
                 onShoutMood={handleShoutMood}
+                onAudioWarmUp={warmUpAudio}
               />
             )}
           </>
