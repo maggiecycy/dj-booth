@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#3a4a58"/>
+      <stop offset="55%" stop-color="#121820"/>
+      <stop offset="100%" stop-color="#070b10"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#g)"/>
+  <circle cx="420" cy="360" r="110" fill="#0a0d12" stroke="#e8a46a" stroke-width="4"/>
+  <circle cx="420" cy="360" r="36" fill="#e8a46a"/>
+  <circle cx="780" cy="360" r="110" fill="#0a0d12" stroke="#c8d0da" stroke-width="3" opacity="0.7"/>
+  <circle cx="780" cy="360" r="36" fill="#8aa0b0"/>
+  <text x="80" y="160" fill="#f3ebe2" font-family="Syne, Arial, sans-serif" font-size="96" font-weight="700">Night Booth</text>
+  <text x="84" y="210" fill="#e8a46a" font-family="DM Sans, Arial, sans-serif" font-size="28" letter-spacing="4">EMOTIONAL HOUSE · HEADPHONE DANCE</text>
+</svg>
