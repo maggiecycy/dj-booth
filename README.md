@@ -1,6 +1,6 @@
 # Night Booth
 
-[![Just For Fun](https://justforfunnoreally.dev/badge.svg)](https://justforfunnoreally.dev/)
+[![justforfunnoreally.dev badge](https://img.shields.io/badge/justforfunnoreally-dev-9ff)](https://justforfunnoreally.dev)
 
 A beat-reactive DJ booth in the browser — for fun.  
 浏览器里的节拍驱动 DJ 舞台 —— 纯好玩。
