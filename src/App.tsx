@@ -20,9 +20,11 @@ import { DJScene } from './scene/DJScene'
 import { PerformanceLoop } from './scene/PerformanceLoop'
 import type { StageFxEvent } from './scene/stageFx'
 import { DEFAULT_VENUE, type VenueSettings } from './types/venue'
+import type { PropKind } from './scene/propFx'
 import { BoothConsole } from './ui/BoothConsole'
 import { CategoryBar } from './ui/CategoryBar'
 import { LibraryPanel } from './ui/LibraryPanel'
+import { SideFxRail } from './ui/SideFxRail'
 import { StartOverlay } from './ui/StartOverlay'
 
 export function App() {
@@ -127,10 +129,11 @@ export function App() {
           scene.triggerCheer(ev.x, ev.y, pAmt)
         } else if (ev.type === 'drag') {
           scene.triggerDragTrail(ev.x, ev.y, pAmt)
-        } else {
+        } else if (ev.type === 'mega') {
           scene.triggerMegaBurst(ev.x, ev.y, pAmt)
           transitionRef.current = 1
         }
+        // 'prop' is handled synchronously in handleLaunchProp — never via this queue
       }
       fxQueue.current = []
 
@@ -140,6 +143,8 @@ export function App() {
       moodQueue.current = []
 
       const bands = engine.sampleBands(dt)
+      const spectrum = engine.sampleSpectrum(72)
+      const waveform = engine.sampleWaveformNorm(160)
       const playing = engine.isPlaying()
       const intensityNow = reducedRef.current
         ? Math.min(intensityRef.current, MOTION.reducedIntensity)
@@ -161,6 +166,8 @@ export function App() {
         reducedMotion: reducedRef.current,
         boothCategory: categoryRef.current,
         venue: venueRef.current,
+        spectrum,
+        waveform,
       }
       scene.update(dt, frame)
       scene.draw(frame)
@@ -184,6 +191,15 @@ export function App() {
   const handleShoutMood = (text: string) => {
     if (!started || !text.trim()) return
     moodQueue.current.push(text)
+  }
+
+  const handleLaunchProp = (kind: PropKind, side: 'left' | 'right') => {
+    if (!started) return
+    const scene = sceneRef.current
+    if (!scene) return
+    // Call scene directly — do not share the pointer fxQueue (avoids megaBurst fallback)
+    scene.triggerProp(kind, side, venueRef.current.particles)
+    transitionRef.current = Math.max(transitionRef.current, 0.4)
   }
 
   const handleStagePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -475,6 +491,9 @@ export function App() {
                 onSpotifyLogoutCleanup={handleSpotifyLogoutCleanup}
               />
             )}
+
+            <SideFxRail side="left" onLaunch={handleLaunchProp} />
+            <SideFxRail side="right" onLaunch={handleLaunchProp} />
 
             <BoothConsole
               track={track}

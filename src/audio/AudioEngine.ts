@@ -9,6 +9,15 @@ import {
   seekSpotifyPlayback,
 } from '../spotify/player'
 import { getValidAccessToken } from '../spotify/auth'
+import {
+  buildProceduralTimeline,
+  sampleAnalysisMotion,
+  sampleAnalysisSpectrum,
+  sampleAnalysisWaveform,
+  trackIdFromSpotifyUri,
+  type AnalysisMotionSample,
+  type AnalysisTimeline,
+} from '../spotify/audioAnalysis'
 
 export type LoadState = 'idle' | 'loading' | 'ready' | 'error' | 'playing' | 'paused'
 
@@ -66,7 +75,10 @@ export class AudioEngine {
   private spotifyPosMs = 0
   private spotifyPosAt = 0
   private spotifyPoll = 0 as ReturnType<typeof setInterval> | 0
-  private spotifySynthPhase = 0
+  /** Beats/sections timeline — Spotify API or procedural fallback */
+  private spotifyTimeline: AnalysisTimeline | null = null
+  private spotifyTimelineTrackId: string | null = null
+  private spotifyMotionSample: AnalysisMotionSample | null = null
 
   constructor(playlist: Track[]) {
     this.playlist = playlist
@@ -395,6 +407,7 @@ export class AudioEngine {
       this.loadState = 'playing'
       this.emit()
       this.startSpotifyPoll()
+      this.bindSpotifyTimeline(track)
 
       window.setTimeout(() => {
         void this.syncFromSpotifyPlayer()
@@ -409,6 +422,30 @@ export class AudioEngine {
         ' — Enable player in Library (Premium), or Log out → Connect again.'
       this.emit()
     }
+  }
+
+  /** BPM + duration arrangement — no Spotify analysis API (403 for most apps). */
+  private bindSpotifyTimeline(track: Track): AnalysisTimeline {
+    const trackId = trackIdFromSpotifyUri(spotifyUriOf(track)) || track.id
+    if (this.spotifyTimeline && this.spotifyTimelineTrackId === trackId) {
+      return this.spotifyTimeline
+    }
+    const timeline = buildProceduralTimeline(
+      trackId,
+      track.bpmHint ?? 120,
+      track.durationSec ?? (this.duration || 210),
+    )
+    this.spotifyTimeline = timeline
+    this.spotifyTimelineTrackId = trackId
+    return timeline
+  }
+
+  private ensureSpotifyTimelineSync(): AnalysisTimeline {
+    const track = this.playlist[this.trackIndex]
+    if (!track) {
+      return buildProceduralTimeline('unknown', 120, this.duration || 210)
+    }
+    return this.bindSpotifyTimeline(track)
   }
 
   private startSpotifyPoll(): void {
@@ -574,6 +611,9 @@ export class AudioEngine {
     this.trackIndex = index
     this.beatFlash = 0
     this.prevOverall = 0
+    this.spotifyMotionSample = null
+    this.spotifyTimeline = null
+    this.spotifyTimelineTrackId = null
     this.loadState = 'loading'
     this.emit()
 
@@ -581,6 +621,7 @@ export class AudioEngine {
     try {
       if (isSpotifyTrack(track)) {
         this.duration = track?.durationSec ?? 0
+        this.bindSpotifyTimeline(track!)
         if (autoplay) await this.play()
         else {
           this.loadState = 'ready'
@@ -638,21 +679,19 @@ export class AudioEngine {
   sampleBands(dt: number): BandEnergy {
     const empty = { bass: 0, mid: 0, high: 0, overall: 0 }
 
-    // Spotify SDK audio is not routed into AnalyserNode — synthesize a beat pulse
+    // Spotify SDK audio is not in AnalyserNode — drive from analysis timeline
     if (this.spotifyMode && this.playing) {
-      const track = this.playlist[this.trackIndex]
-      const bpm = track?.bpmHint || 120
-      this.spotifySynthPhase += dt * (bpm / 60) * Math.PI * 2
-      const kick = Math.pow(Math.max(0, Math.sin(this.spotifySynthPhase)), 8)
-      const hat = Math.pow(Math.max(0, Math.sin(this.spotifySynthPhase * 2 + 0.4)), 4) * 0.45
-      const bass = 0.25 + kick * 0.7
-      const mid = 0.2 + hat * 0.5
-      const high = 0.15 + hat * 0.35
-      const overall = bass * 0.5 + mid * 0.35 + high * 0.15
-      if (kick > 0.55) this.beatFlash = 1
-      else this.beatFlash = Math.max(0, this.beatFlash - dt * 5)
-      this.prevOverall = overall
-      return { bass, mid, high, overall }
+      const timeline = this.ensureSpotifyTimelineSync()
+      const sample = sampleAnalysisMotion(
+        timeline,
+        this.getCurrentTime(),
+        dt,
+        this.beatFlash,
+      )
+      this.spotifyMotionSample = sample
+      this.beatFlash = sample.beatFlash
+      this.prevOverall = sample.bands.overall
+      return sample.bands
     }
 
     if (!this.analyser || !this.freqData || !this.playing) {
@@ -689,6 +728,73 @@ export class AudioEngine {
     if (!this.analyser || !this.timeData) return null
     this.analyser.getByteTimeDomainData(this.timeData)
     return this.timeData
+  }
+
+  /**
+   * Frequency bars 0…1 across the musical range (not left-heavy).
+   * Draw layer can mirror bass to center for aesthetic styles.
+   */
+  sampleSpectrum(barCount: number): number[] {
+    const n = Math.max(16, Math.min(128, Math.floor(barCount)))
+    const out = new Array<number>(n).fill(0)
+
+    if (this.spotifyMode && this.playing) {
+      const motion =
+        this.spotifyMotionSample ??
+        sampleAnalysisMotion(
+          this.ensureSpotifyTimelineSync(),
+          this.getCurrentTime(),
+          0,
+          this.beatFlash,
+        )
+      return sampleAnalysisSpectrum(motion, n, this.getCurrentTime())
+    }
+
+    if (!this.analyser || !this.freqData || !this.playing) return out
+
+    this.analyser.getByteFrequencyData(this.freqData)
+    const bins = this.freqData.length
+    // Use the lower ~45% of bins (where music energy lives), sampled evenly
+    const usable = Math.max(32, Math.floor(bins * 0.45))
+    for (let i = 0; i < n; i++) {
+      const t0 = i / n
+      const t1 = (i + 1) / n
+      const start = Math.floor(t0 * usable)
+      const end = Math.max(start + 1, Math.floor(t1 * usable))
+      let sum = 0
+      for (let j = start; j < end; j++) sum += this.freqData[j]!
+      // Gentle curve so quiet tracks still read
+      const raw = sum / (end - start) / 255
+      out[i] = Math.min(1, Math.pow(raw, 0.85) * 1.25)
+    }
+    return out
+  }
+
+  /** Normalized waveform samples −1…1 for ribbon / oscilloscope styles. */
+  sampleWaveformNorm(sampleCount: number): number[] {
+    const n = Math.max(32, Math.min(256, Math.floor(sampleCount)))
+    const out = new Array<number>(n).fill(0)
+
+    if (this.spotifyMode && this.playing) {
+      const motion =
+        this.spotifyMotionSample ??
+        sampleAnalysisMotion(
+          this.ensureSpotifyTimelineSync(),
+          this.getCurrentTime(),
+          0,
+          this.beatFlash,
+        )
+      return sampleAnalysisWaveform(motion, n, this.getCurrentTime())
+    }
+
+    if (!this.analyser || !this.timeData || !this.playing) return out
+    this.analyser.getByteTimeDomainData(this.timeData)
+    const len = this.timeData.length
+    for (let i = 0; i < n; i++) {
+      const idx = Math.floor((i / n) * len)
+      out[i] = ((this.timeData[idx] ?? 128) - 128) / 128
+    }
+    return out
   }
 
   private ensureContext(): void {

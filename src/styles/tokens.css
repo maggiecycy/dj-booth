@@ -540,8 +540,25 @@ body {
   color: var(--ink-muted);
 }
 
+.venue-panel__row--select {
+  grid-template-columns: 3.2rem 1fr;
+}
+
 .venue-panel__row input[type='range'] {
   width: 100%;
+}
+
+.venue-panel__select {
+  appearance: none;
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  padding: 0.3rem 0.55rem;
 }
 
 .btn--xs {
@@ -682,6 +699,148 @@ body {
 
 .stage__top-ui > * {
   pointer-events: auto;
+}
+
+/* Side prop rails — toss club toys onto the stage */
+.fx-rail {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  width: 58px;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  padding: 0.45rem 0.35rem;
+  border: 1px solid var(--line);
+  background: rgba(14, 18, 24, 0.88);
+  backdrop-filter: blur(12px);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  scrollbar-width: thin;
+  isolation: isolate;
+  transition: width 0.15s ease, max-height 0.15s ease;
+}
+
+.fx-rail.is-collapsed {
+  width: auto;
+  max-height: none;
+  overflow: visible;
+  padding: 0.3rem;
+}
+
+.fx-rail--left {
+  left: max(0.4rem, env(safe-area-inset-left));
+  border-radius: 14px;
+}
+
+.fx-rail--right {
+  right: max(0.4rem, env(safe-area-inset-right));
+  border-radius: 14px;
+}
+
+.fx-rail__toggle {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: 0.2rem 0.15rem;
+  border-radius: 8px;
+  font-family: var(--font-body);
+}
+
+.fx-rail__toggle:hover {
+  color: var(--accent);
+  background: rgba(232, 164, 106, 0.1);
+}
+
+.fx-rail.is-collapsed .fx-rail__toggle {
+  flex-direction: column;
+  min-width: 2.2rem;
+  padding: 0.45rem 0.35rem;
+}
+
+.fx-rail__label {
+  margin: 0;
+  text-align: center;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: inherit;
+}
+
+.fx-rail__chevron {
+  font-size: 0.7rem;
+  line-height: 1;
+  opacity: 0.75;
+}
+
+.fx-rail__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.fx-rail__btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--ink);
+  border-radius: 10px;
+  padding: 0.35rem 0.2rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  font-family: var(--font-body);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.fx-rail__btn:hover:not(:disabled) {
+  border-color: rgba(232, 164, 106, 0.45);
+  background: rgba(232, 164, 106, 0.12);
+}
+
+.fx-rail__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.fx-rail__glyph {
+  font-size: 0.85rem;
+  line-height: 1.1;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.fx-rail__name {
+  font-size: 0.58rem;
+  color: var(--ink-muted);
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 720px) {
+  .fx-rail {
+    width: 48px;
+    max-height: min(52vh, 380px);
+    padding: 0.35rem 0.25rem;
+  }
+
+  .fx-rail.is-collapsed {
+    width: auto;
+    max-height: none;
+  }
+
+  .fx-rail__name {
+    display: none;
+  }
 }
 
 .slider--thin {

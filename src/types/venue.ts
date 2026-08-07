@@ -1,3 +1,5 @@
+import type { WaveStyle } from '../scene/waveVisualizer'
+
 /** User-tunable venue / lighting multipliers (0–1). */
 export interface VenueSettings {
   lights: number
@@ -5,6 +7,8 @@ export interface VenueSettings {
   lasers: number
   particles: number
   fog: number
+  /** Bottom music wave visualizer style */
+  wave: WaveStyle
 }
 
 export const DEFAULT_VENUE: VenueSettings = {
@@ -13,4 +17,5 @@ export const DEFAULT_VENUE: VenueSettings = {
   lasers: 0.45,
   particles: 0.5,
   fog: 0.35,
+  wave: 'mirror',
 }

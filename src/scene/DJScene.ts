@@ -22,6 +22,8 @@ import { CrowdBubbleSystem } from './crowdBubbles'
 import type { VenueSettings } from '../types/venue'
 import { fxCurve, fxMix } from './venueFx'
 import { ParticleSystem } from './particles'
+import { PropFxSystem, type PropKind } from './propFx'
+import { drawWaveVisualizer } from './waveVisualizer'
 
 export interface SceneState {
   motion: MotionParams
@@ -31,6 +33,10 @@ export interface SceneState {
   reducedMotion: boolean
   boothCategory: CategoryId
   venue: VenueSettings
+  /** Frequency bars 0…1 */
+  spectrum: number[]
+  /** Time-domain samples −1…1 */
+  waveform: number[]
 }
 
 const MOOD_TINT: Record<TrackMood, [number, number, number]> = {
@@ -64,9 +70,11 @@ export class DJScene {
   private co2Puff = 0
   private cheerFlash = 0
   private megaFlash = 0
+  private waveTime = 0
   private particles = new ParticleSystem()
   private cheers = new CheerSystem()
   private bubbles = new CrowdBubbleSystem()
+  private props = new PropFxSystem()
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d')
@@ -90,6 +98,7 @@ export class DJScene {
   update(dt: number, state: SceneState): void {
     const { motion } = state
     this.breath += dt * (state.playing ? 1.2 : 0.6)
+    this.waveTime += dt
     this.vinylAngle += dt * motion.vinylSpeed * 2.8
     this.armPhase += dt * (2.2 + motion.armSwing * 4)
     this.twoStep += dt * (state.playing ? 2.4 + motion.bounce * 3.2 : 0.8)
@@ -117,6 +126,7 @@ export class DJScene {
     this.prevFlash = motion.beatFlash
     this.particles.update(dt)
     this.cheers.update(dt)
+    this.props.update(dt)
 
     this.bubbles.update(
       dt,
@@ -145,6 +155,25 @@ export class DJScene {
     }
     this.cheerFlash = Math.max(this.cheerFlash, 0.45)
     this.co2Puff = Math.max(this.co2Puff, 0.25)
+  }
+
+  /** Side-rail club prop toss — distinct per kind, never a mega burst */
+  triggerProp(kind: PropKind, side: 'left' | 'right', particleAmt = 0.9) {
+    if (this.w < 8 || this.h < 8) return
+    this.props.spawn(kind, side, this.w, this.h)
+    const x = side === 'left' ? this.w * 0.18 : this.w * 0.82
+    const y = this.h * 0.4
+    // Light accent only — do not screenFill / megaFlash
+    if (kind === 'confetti' || kind === 'disco' || kind === 'cash') {
+      this.particles.burst(0.55, x, y, Math.max(0.35, particleAmt * 0.55))
+    }
+    if (kind === 'bass' || kind === 'champagne' || kind === 'can' || kind === 'horn') {
+      this.co2Puff = Math.max(this.co2Puff, 0.45)
+      this.cheerFlash = Math.max(this.cheerFlash, 0.4)
+    }
+    if (kind === 'lighter' || kind === 'mic' || kind === 'ball') {
+      this.cheerFlash = Math.max(this.cheerFlash, 0.35)
+    }
   }
 
   /** 4+ rapid taps — full-stage overload */
@@ -224,6 +253,17 @@ export class DJScene {
       ctx.fillStyle = `rgba(255,240,220,${this.megaFlash * 0.22})`
       ctx.fillRect(0, 0, w, h)
     }
+    drawWaveVisualizer(ctx, w, h, v.wave, {
+      spectrum: state.spectrum,
+      waveform: state.waveform,
+      playing: state.playing,
+      reducedMotion: state.reducedMotion,
+      energy: pulse,
+      tint,
+      time: this.waveTime,
+    })
+    // Props above haze / wave so side-rail tosses stay visible
+    this.props.draw(ctx)
     this.drawTitle()
     if (state.transition > 0.02) this.drawScratchFx(state.transition)
   }

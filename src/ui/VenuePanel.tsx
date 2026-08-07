@@ -1,4 +1,5 @@
 import type { VenueSettings } from '../types/venue'
+import { WAVE_STYLES, type WaveStyle } from '../scene/waveVisualizer'
 
 interface VenuePanelProps {
   settings: VenueSettings
@@ -8,7 +9,7 @@ interface VenuePanelProps {
   embedded?: boolean
 }
 
-const SLIDERS: { key: keyof VenueSettings; label: string }[] = [
+const SLIDERS: { key: Exclude<keyof VenueSettings, 'wave'>; label: string }[] = [
   { key: 'lights', label: 'Lights' },
   { key: 'lasers', label: 'Lasers' },
   { key: 'haze', label: 'Haze' },
@@ -37,6 +38,21 @@ export function VenuePanel({
 
       {open && (
         <div className="venue-panel__body">
+          <label className="venue-panel__row venue-panel__row--select">
+            <span>Wave</span>
+            <select
+              className="venue-panel__select"
+              value={settings.wave}
+              aria-label="Wave visualizer style"
+              onChange={(e) => onChange({ wave: e.target.value as WaveStyle })}
+            >
+              {WAVE_STYLES.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
           {SLIDERS.map(({ key, label }) => (
             <label key={key} className="venue-panel__row">
               <span>{label}</span>
